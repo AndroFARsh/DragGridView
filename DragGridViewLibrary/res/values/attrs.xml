@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <attr name="state_editing" format="boolean" />
+    <attr name="state_drop_allow" format="boolean" />
+    <attr name="debug_mode" format="boolean" />
+
+    <declare-styleable name="CustomFontTextView">
+        <attr name="fontPath" format="string|reference" />
+        <attr name="htmlText" format="string|reference" />
+    </declare-styleable>
+    
+    <declare-styleable name="DragGridLayout">
+        <attr name="grid_pattern" format="reference" />
+        <attr name="root_layout" format="reference" />
+        <attr name="column" format="integer" />
+        <attr name="row" format="integer" />
+        <attr name="cell_drawable" format="color|reference" />
+        <attr name="highlight_drawable" format="color|reference" />
+        <attr name="cell_count" format="integer" />
+        <attr name="orientation">
+            <enum name="vertical" value="0" />
+            <enum name="horizontal" value="1" />
+        </attr>
+        <attr name="vertical_size" format="integer" />
+        <attr name="horizontal_size" format="integer" />
+        <attr name="debug_mode" />
+    </declare-styleable>
+   
+
+</resources>

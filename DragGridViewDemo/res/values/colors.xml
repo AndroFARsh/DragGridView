@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:android="http://schemas.android.com/apk/res/android">
+  <color name="widget1" >#78a616</color>
+  <color name="widget2" >#f6592e</color>
+  <color name="widget3" >#259dd8</color>  
+</resources>
