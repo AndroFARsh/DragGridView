@@ -18,13 +18,10 @@
         <attr name="cell_drawable" format="color|reference" />
         <attr name="highlight_drawable" format="color|reference" />
         <attr name="cell_count" format="integer" />
-        <attr name="orientation">
-            <enum name="vertical" value="0" />
-            <enum name="horizontal" value="1" />
-        </attr>
         <attr name="vertical_size" format="integer" />
         <attr name="horizontal_size" format="integer" />
         <attr name="debug_mode" />
+        <attr name="android:gravity" />
     </declare-styleable>
    
 
