@@ -13,8 +13,6 @@
     <declare-styleable name="DragGridLayout">
         <attr name="grid_pattern" format="reference" />
         <attr name="root_layout" format="reference" />
-        <attr name="column" format="integer" />
-        <attr name="row" format="integer" />
         <attr name="cell_drawable" format="color|reference" />
         <attr name="highlight_drawable" format="color|reference" />
         <attr name="cell_count" format="integer" />
