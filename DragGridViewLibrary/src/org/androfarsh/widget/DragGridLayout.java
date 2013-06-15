@@ -1,7 +1,9 @@
 package org.androfarsh.widget;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -15,6 +17,7 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Paint.Align;
 import android.graphics.Paint.Style;
+import android.graphics.Path;
 import android.graphics.Point;
 import android.graphics.Rect;
 import android.graphics.Region;
@@ -40,15 +43,345 @@ import android.view.animation.TranslateAnimation;
 import com.example.draggridviewlibrary.R;
 
 public class DragGridLayout extends ViewGroup {
-	private static final int LONGPRESS_TIMEOUT = ViewConfiguration.getLongPressTimeout();
+	static class Cell {
+		public final static int LEFT = 1;
+		public final static int RIGHT = 2;
+		public final static int TOP = 4;
+		public final static int BOTTOM = 8;
+
+		public final Rect rect;
+
+		Cell left;
+
+		Cell top;
+
+		Cell right;
+
+		Cell bottom;
+
+		Cell() {
+			rect = new Rect();
+		}
+
+		Cell(int x, int y, int s) {
+			rect = new Rect(x, y, x + s, y + s);
+		}
+
+		public Cell getBottom() {
+			return bottom;
+		}
+
+		public Cell getLeft() {
+			return left;
+		}
+
+		public Cell getRight() {
+			return right;
+		}
+
+		public Cell getTop() {
+			return top;
+		}
+
+		@Override
+		public int hashCode() {
+			return (rect.top << 12) | rect.left;
+		}
+
+		public void setCell(Cell cell, int direction) {
+			switch (direction) {
+			case Cell.LEFT:
+				left = cell;
+				break;
+			case Cell.TOP:
+				top = cell;
+				break;
+			case Cell.RIGHT:
+				right = cell;
+				break;
+			case Cell.BOTTOM:
+				bottom = cell;
+				break;
+			}
+		}
+	}
+
+	private final class GestureListenerImpl implements OnGestureListener {
+		OnGestureListener gestureListener;
+
+		@Override
+		public boolean onDown(MotionEvent e) {
+			if ((gestureListener != null) && gestureListener.onDown(e)) {
+				return true;
+			}
+			return false;
+		}
+
+		@Override
+		public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX,
+				float velocityY) {
+			Log.e(VIEW_LOG_TAG, "velocityX=" + velocityX + " velocityY="
+					+ velocityY);
+			if ((mDragNode != null) && (Math.abs(velocityY) > 1000)) {
+				final View view = mDragNode.view;
+				final Animation animation = new TranslateAnimation(0, 0, 0,
+						(velocityY > 0 ? 1 : -1) * getMeasuredHeight());
+
+				animation.setDuration(DURATION);
+				animation.setInterpolator(getContext(),
+						android.R.anim.accelerate_interpolator);
+				animation.setAnimationListener(new AbstractAnimationListener() {
+					@Override
+					public void onAnimationEnd(Animation animation) {
+						mDragNode = null;
+
+						view.setAnimation(null);
+						removeView(view);
+					}
+				});
+
+				view.startAnimation(animation);
+				return true;
+			}
+
+			if ((gestureListener != null)
+					&& gestureListener.onFling(e1, e2, velocityX, velocityY)) {
+				return true;
+			}
+			return false;
+		}
+
+		@Override
+		public void onLongPress(MotionEvent ev) {
+			if (!mEditMode) {
+				final View child = findIntersectChild(ev.getX(), ev.getY());
+				if (child != null) {
+					setEditMode(true);
+				}
+			}
+			if (gestureListener != null) {
+				gestureListener.onLongPress(ev);
+			}
+		}
+
+		@Override
+		public boolean onScroll(MotionEvent e1, MotionEvent e2,
+				float distanceX, float distanceY) {
+			if ((gestureListener != null)
+					&& gestureListener.onScroll(e1, e2, distanceX, distanceY)) {
+				return true;
+			}
+			return false;
+		}
+
+		@Override
+		public void onShowPress(MotionEvent e) {
+			if (gestureListener != null) {
+				gestureListener.onShowPress(e);
+			}
+		}
+
+		@Override
+		public boolean onSingleTapUp(MotionEvent e) {
+			if ((gestureListener != null) && gestureListener.onSingleTapUp(e)) {
+				return true;
+			}
+			return false;
+		}
+	}
+
+	private class HierarchyChangeListenerImpl implements
+	OnHierarchyChangeListener, OnLongClickListener {
+		private OnHierarchyChangeListener listener;
+
+		@Override
+		public void onChildViewAdded(View parent, View child) {
+			// generates an id if it's missing
+			if (child.getId() == View.NO_ID) {
+				child.setId(child.hashCode());
+			}
+
+			if (child != mRootView) {
+				child.setOnLongClickListener(this);
+			}
+			if (listener != null) {
+				listener.onChildViewAdded(parent, child);
+			}
+		}
+
+		@Override
+		public void onChildViewRemoved(View parent, View child) {
+			child.setOnLongClickListener(null);
+			child.setOnTouchListener(null);
+
+			if ((mRemoveListener != null) && (child != mRootView)) {
+				mRemoveListener.onRemove(child, DragGridLayout.this);
+			}
+
+			if (listener != null) {
+				listener.onChildViewRemoved(parent, child);
+			}
+		}
+
+		@Override
+		public boolean onLongClick(View child) {
+			if ((child != null) && (child != mRootView) && !mEditMode) {
+				setEditMode(true);
+				return true;
+			}
+			return false;
+		}
+	}
+
+	public static class LayoutParams extends MarginLayoutParams {
+		int x = UNKNOWN;
+		int y = UNKNOWN;
+
+		int vSize = 1;
+		int hSize = 1;
+
+		boolean animation;
+
+		LayoutParams() {
+			super(MATCH_PARENT, MATCH_PARENT);
+		}
+
+		public LayoutParams(Context c, AttributeSet attrs) {
+			super(c, attrs);
+			final TypedArray a = c.obtainStyledAttributes(attrs,
+					R.styleable.DragGridLayout);
+
+			vSize = a.getInt(R.styleable.DragGridLayout_vertical_size, 1);
+			hSize = a.getInt(R.styleable.DragGridLayout_horizontal_size, 1);
+
+			a.recycle();
+		}
+
+		public LayoutParams(int width, int height) {
+			super(width, height);
+		}
+
+		LayoutParams(int x, int y, int width, int height) {
+			super(width, height);
+
+			this.x = x;
+			this.y = y;
+		}
+
+		public LayoutParams(LayoutParams source) {
+			super(source);
+
+			x = source.x;
+			y = source.y;
+			vSize = source.vSize;
+			hSize = source.hSize;
+		}
+
+		public LayoutParams(MarginLayoutParams source) {
+			super(source);
+		}
+
+		public LayoutParams(ViewGroup.LayoutParams source) {
+			super(source);
+		}
+
+		public Point getPosition() {
+			return new Point(x, y);
+		}
+
+		public void setPosition(Point point) {
+			x = point.x;
+			y = point.y;
+		}
+
+		@Override
+		public String toString() {
+			return String.format(Locale.ENGLISH,
+					"a=%s [x=%d;y=%d] [h=%d;v=%d]",
+					Boolean.toString(animation), x, y, hSize, vSize);
+		}
+	}
+
+	static class Node {
+		public static void scale(Rect rect, float scale) {
+			final float dw = rect.width() * (1 - scale) * 0.5f;
+			final float dh = rect.height() * (1 - scale) * 0.5f;
+
+			rect.left += dw;
+			rect.top += dh;
+			rect.right -= dw;
+			rect.bottom -= dh;
+		}
+		Rect startRect = new Rect();
+		Rect currentRect = new Rect();
+		View view;
+
+		BitmapDrawable viewDrawable;
+
+		Node(View view, Rect rect) {
+			this.view = view;
+			this.viewDrawable = DragGridLayout.createDrawingCache(view);
+
+			startRect.set(rect);
+			currentRect.set(rect);
+		}
+
+		public void dispose() {
+			if (viewDrawable != null) {
+				viewDrawable.getBitmap().recycle();
+				viewDrawable = null;
+			}
+		}
+
+		@Override
+		public int hashCode() {
+			return view.hashCode();
+		}
+	}
+
+	public interface OnCellClickListener {
+		void onClick(Point point, DragGridLayout parent);
+	}
+
+	public interface OnViewDragListener {
+		void onDrag(View view, DragGridLayout parent);
+
+		void onDrop(View view, DragGridLayout parent);
+	}
+
+	public interface OnViewRemoveListener {
+		void onRemove(View view, DragGridLayout parent);
+	}
+
+	private static final int LONGPRESS_TIMEOUT = ViewConfiguration
+			.getLongPressTimeout();
+
 	private static final int TAP_TIMEOUT = ViewConfiguration.getTapTimeout();
 
 	private static final int UNKNOWN = -1;
-	private static final float SCALE_FACTOR = 0.8f;
+
 	private static final int DELTA = 10;
+
 	private static final int DURATION = 200;
+
 	private static final int DEFAULT_CELL_COUNT = 4;
+
 	private static final int DEFAULT_GRAVITY = Gravity.CENTER;
+
+	private static final float SCALE_FACTOR = 0.8f;
+
+	@SuppressWarnings("deprecation")
+	private static BitmapDrawable createDrawingCache(View view) {
+		BitmapDrawable drawable = null;
+		view.buildDrawingCache();
+		final Bitmap bitmap = view.getDrawingCache();
+		if (bitmap != null) {
+			drawable = new BitmapDrawable(Bitmap.createBitmap(bitmap));
+			bitmap.recycle();
+		}
+		view.destroyDrawingCache();
+		return drawable;
+	}
 
 	private boolean mEditMode;
 
@@ -80,7 +413,7 @@ public class DragGridLayout extends ViewGroup {
 
 	private float mPrevY;
 
-	private DragNode mDragNode;
+	private Node mDragNode;
 
 	private OnViewDragListener mDragListener;
 
@@ -89,7 +422,6 @@ public class DragGridLayout extends ViewGroup {
 	private boolean mDebugMode;
 
 	private HierarchyChangeListenerImpl mHierarchyChangeListener;
-
 	private BitmapDrawable mRootViewDrawable;
 
 	private OnCellClickListener mCellClickListener;
@@ -100,7 +432,7 @@ public class DragGridLayout extends ViewGroup {
 
 		@Override
 		public void run() {
-			onLongHover();
+			requestReorder();
 			mLoongHoveredRequested = false;
 		}
 	};
@@ -123,20 +455,39 @@ public class DragGridLayout extends ViewGroup {
 
 	private int mGravity = DEFAULT_GRAVITY;
 
+	private final Set<Node> mNodes = new HashSet<Node>();
+
+	public DragGridLayout(Context context) {
+		super(context);
+
+		init();
+	}
+
+	public DragGridLayout(Context context, AttributeSet attrs) {
+		this(context, attrs, 0);
+	}
+
 	public DragGridLayout(Context context, AttributeSet attrs, int defStyle) {
 		super(context, attrs, defStyle);
 
-		final TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.DragGridLayout, defStyle, 0);
+		final TypedArray a = context.obtainStyledAttributes(attrs,
+				R.styleable.DragGridLayout, defStyle, 0);
 
-		mDebugMode = a.getBoolean(R.styleable.DragGridLayout_debug_mode, mDebugMode);
+		mDebugMode = a.getBoolean(R.styleable.DragGridLayout_debug_mode,
+				mDebugMode);
 		mCellDrawable = a.getDrawable(R.styleable.DragGridLayout_cell_drawable);
-		mHighlightDrawable = a.getDrawable(R.styleable.DragGridLayout_highlight_drawable);
-		mCellCount  = a.getInteger(R.styleable.DragGridLayout_cell_count, DEFAULT_CELL_COUNT);
-		mGravity   = a.getInteger(R.styleable.DragGridLayout_android_gravity, DEFAULT_GRAVITY);
+		mHighlightDrawable = a
+				.getDrawable(R.styleable.DragGridLayout_highlight_drawable);
+		mCellCount = a.getInteger(R.styleable.DragGridLayout_cell_count,
+				DEFAULT_CELL_COUNT);
+		mGravity = a.getInteger(R.styleable.DragGridLayout_android_gravity,
+				DEFAULT_GRAVITY);
 
-		final int rootViewRes = a.getResourceId(R.styleable.DragGridLayout_root_layout, UNKNOWN);
+		final int rootViewRes = a.getResourceId(
+				R.styleable.DragGridLayout_root_layout, UNKNOWN);
 		if (rootViewRes != UNKNOWN) {
-			String resTypeName = getResources().getResourceTypeName(rootViewRes);
+			String resTypeName = getResources()
+					.getResourceTypeName(rootViewRes);
 			if ("layout".equals(resTypeName)) {
 				setRootViewRes(rootViewRes);
 			} else if ("id".equals(resTypeName)) {
@@ -149,36 +500,42 @@ public class DragGridLayout extends ViewGroup {
 		init();
 	}
 
-	public DragGridLayout(Context context, AttributeSet attrs) {
-		this(context, attrs, 0);
-	}
-
-	public DragGridLayout(Context context) {
-		super(context);
-
-		init();
-	}
-
-	private void init() {
-		mHierarchyChangeListener = new HierarchyChangeListenerImpl();
-		mGestureListener = new GestureListenerImpl();
-		mGestureDetector = new GestureDetectorCompat(getContext(), mGestureListener);
-
-		mGestureDetector.setIsLongpressEnabled(true);
-		setLongClickable(true);
-		super.setOnHierarchyChangeListener(mHierarchyChangeListener);
-		setChildrenDrawingOrderEnabled(true);
-		setClipToPadding(false);
-	}
-
 	@Override
-	public void setOnHierarchyChangeListener(OnHierarchyChangeListener listener) {
-		this.mHierarchyChangeListener.listener = listener;
+	public void addView(View child, int index,
+			android.view.ViewGroup.LayoutParams params) {
+		if ((mRootViewId != UNKNOWN) && (child.getId() == mRootViewId)) {
+			if (mRootView == child) {
+				return;
+			}
+
+			if (mRootView != null) {
+				mRootView.setAnimation(null);
+				removeView(mRootView);
+			}
+			mRootView = child;
+			index = 0;
+		}
+		super.addView(child, index, validateLayoutParams(params));
 	}
 
-	@Override
-	public ViewGroup.LayoutParams generateLayoutParams(AttributeSet attrs) {
-		return new DragGridLayout.LayoutParams(getContext(), attrs);
+	private boolean checkIsSpaceFree(LayoutParams lp, Region freeRagion) {
+		if (mCells.isEmpty() || (lp.x == UNKNOWN) || (lp.y == UNKNOWN)) {
+			return false;
+		}
+
+		final Rect rect = new Rect(lp.leftMargin, lp.topMargin,
+				(lp.hSize * mCellSize) - lp.rightMargin, (lp.vSize * mCellSize)
+				- lp.bottomMargin);
+		rect.offset(lp.x, lp.y);
+
+		mTmpRegion.set(freeRagion);
+		mTmpRegion.op(rect, Op.INTERSECT);
+		if (!mTmpRegion.isEmpty() && mTmpRegion.isRect()) {
+			mTmpRegion.getBounds(mTmpRect);
+			return ((mTmpRect.width() == rect.width()) && (mTmpRect.height() == rect
+					.height()));
+		}
+		return false;
 	}
 
 	// Override to allow type-checking of LayoutParams.
@@ -188,321 +545,82 @@ public class DragGridLayout extends ViewGroup {
 	}
 
 	@Override
-	protected DragGridLayout.LayoutParams generateLayoutParams(ViewGroup.LayoutParams p) {
-		if (p == null) {
-			return new DragGridLayout.LayoutParams();
-		} else if (p instanceof MarginLayoutParams) {
-			return new DragGridLayout.LayoutParams((MarginLayoutParams) p);
-		}
-		return new DragGridLayout.LayoutParams(p);
-	}
-
-	private void onLongHover() {
-
-	}
-
-	@Override
-	protected void onLayout(boolean changed, int l, int t, int r, int b) {
-		final int count = getChildCount();
-
-		for (int i = 0; i < count; i++) {
-			final View child = getChildAt(i);
-			if (child.getVisibility() == GONE) {
-				continue;
-			}
-
-			final int childLeft;
-			final int childTop;
-			final int childRight;
-			final int childBottom;
-
-			final DragGridLayout.LayoutParams lp = (DragGridLayout.LayoutParams) child.getLayoutParams();
-
-			if ((mDragNode != null)
-					&& (mDragNode.view == child)) {
-				childLeft = mDragNode.currentRect.left;
-				childTop = mDragNode.currentRect.top;
-				childRight = mDragNode.currentRect.right;
-				childBottom = mDragNode.currentRect.bottom;
-			} else if (child == mRootView) {
-				childLeft = 0;
-				childTop = 0;
-				childRight = r - l;
-				childBottom = b - t;
-			} else {
-				childLeft = lp.x + lp.leftMargin;
-				childTop = lp.y + lp.topMargin;
-				childRight = childLeft + child.getMeasuredWidth();
-				childBottom = childTop + child.getMeasuredHeight();
-			}
-
-			child.layout(childLeft, childTop, childRight, childBottom);
-		}
-	}
-
-	@Override
-	protected void measureChild(View child, int parentWidthMeasureSpec, int parentHeightMeasureSpec) {
-		final int childWidthMeasureSpec;
-		final int childHeightMeasureSpec;
-		final LayoutParams lp = (LayoutParams) child.getLayoutParams();
-
-		if (mRootView == child) {
-			childWidthMeasureSpec = parentWidthMeasureSpec;
-			childHeightMeasureSpec = parentHeightMeasureSpec;
-		} else if (((mDragNode) != null) && (mDragNode.view == child)) {
-			final int width = mDragNode.currentRect.width();
-			final int height = mDragNode.currentRect.height();
-
-			final int widthSize = MeasureSpec.getSize(parentWidthMeasureSpec);
-			final int heightSize = MeasureSpec.getSize(parentHeightMeasureSpec);
-
-			childWidthMeasureSpec = ViewGroup.getChildMeasureSpec(
-					MeasureSpec.makeMeasureSpec(widthSize, MeasureSpec.EXACTLY), getPaddingLeft() + getPaddingRight(),
-					width);
-			childHeightMeasureSpec = ViewGroup.getChildMeasureSpec(
-					MeasureSpec.makeMeasureSpec(heightSize, MeasureSpec.EXACTLY), getPaddingTop() + getPaddingBottom(),
-					height);
-		} else {
-			final int width = (lp.hSize * mCellSize) - (lp.leftMargin + lp.rightMargin);
-			final int height = (lp.vSize * mCellSize) - (lp.topMargin + lp.bottomMargin);
-
-			childWidthMeasureSpec = ViewGroup.getChildMeasureSpec(parentWidthMeasureSpec, getPaddingLeft()
-					+ getPaddingRight(), width);
-			childHeightMeasureSpec = ViewGroup.getChildMeasureSpec(parentHeightMeasureSpec, getPaddingTop()
-					+ getPaddingBottom(), height);
-		}
-		child.measure(childWidthMeasureSpec, childHeightMeasureSpec);
-	}
-
-	@Override
-	protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-		super.onMeasure(widthMeasureSpec, heightMeasureSpec);
-
-		measureChildren(widthMeasureSpec, heightMeasureSpec);
-	}
-
-	@Override
-	protected void onSizeChanged(int w, int h, int oldw, int oldh) {
-		mCellsRegion.setEmpty();
-
-		mCells.clear();
-		mHoveredCells.clear();
-		mCellSize = resolveCellSize(w, h);
-		if (!(mCellSize > 0)) {
-			return;
-		}
-
-		int hCellCount = (w - (getPaddingLeft() + getPaddingRight())) / mCellSize;
-		int x = getPaddingLeft() + resolveOffset(w - (getPaddingLeft() + getPaddingRight()),
-				mCellSize,
-				hCellCount,
-				mGravity & Gravity.HORIZONTAL_GRAVITY_MASK);
-		int vCcellCount = (h - (getPaddingTop() + getPaddingBottom())) / mCellSize;
-		int y = getPaddingTop() + resolveOffset(h - (getPaddingTop() + getPaddingBottom()), mCellSize,
-				vCcellCount,
-				(mGravity & Gravity.VERTICAL_GRAVITY_MASK));
-
-		final Cell[] prevRow = new Cell[hCellCount];
-		final Cell[] currRow = new Cell[hCellCount];
-
-		while ((y + mCellSize) < h){
-			resolveCell(currRow, prevRow, x, y, mCells, mCellsRegion);
-			System.arraycopy(currRow, 0, prevRow, 0, currRow.length);
-			y += mCellSize;
-		}
-
-		validateChildLayoutParams();
-	}
-
-
-
-	private int resolveOffset(int size, int cellSize, int cellCount, int gravity) {
-		switch (gravity) {
-		case Gravity.LEFT:
-		case Gravity.TOP:
-			return 0;
-		case Gravity.RIGHT:
-		case Gravity.BOTTOM:
-			return Math.max(0, size - (cellCount * cellSize));
-		case Gravity.CENTER_HORIZONTAL:
-		case Gravity.CENTER_VERTICAL:
-		default:
-			return Math.max(0, (size - (cellCount * cellSize)) / 2);
-		}
-	}
-
-	private void resolveCell(Cell[] curr, Cell[] prev, int offsetX, int offsetY, List<Cell> cells, Region cellsRegion) {
-		for (int i = 0; i < curr.length; ++i) {
-			curr[i] = new Cell(offsetX + (i * mCellSize), offsetY, mCellSize);
-
-			if (((i - 1) != -1) && (curr[i - 1] != null)) {
-				curr[i - 1].right = curr[i];
-			}
-
-			curr[i].left = (i - 1) != -1 ? curr[i - 1] : null;
-			curr[i].top = (prev[i]);
-			if (prev[i] != null) {
-				prev[i].bottom = curr[i];
-			}
-
-			cells.add(curr[i]);
-			cellsRegion.union(curr[i].rect);
-		}
-	}
-
-	private boolean searchNearestCell(Cell outCell, Cell cell, int direction) {
-		mTmpRegion.set(mFreeCellRegion);
-		if (cell != null) {
-			mTmpRegion.op(cell.rect, Op.INTERSECT);
-			mTmpRegion.getBounds(mTmpRect);
-			if (!mTmpRegion.isEmpty() && mTmpRegion.isRect() && (mTmpRect.width() == cell.rect.width())
-					&& (mTmpRect.height() == cell.rect.height())) {
-
-				outCell.setCell(cell, direction);
-				return true;
-			}
-		}
-		return false;
-	}
-
-	private boolean requestHoveredCells(DragNode node) {
-		mHoveredCells.clear();
-		if (!mCellsRegion.quickReject(node.currentRect)) {
-			mTmpRegion.set(mFreeCellRegion);
-			mTmpRegion.op(node.currentRect, Op.INTERSECT);
-
-			final View view = node.view;
-			final LayoutParams lp = (LayoutParams) view.getLayoutParams();
-
-			final Rect rect = mTmpRegion.getBounds();
-			final Cell cell = findCellUnder(rect);
-			if (cell == null) {
-				return false;
-			}
-
-			final Cell outCell = new Cell();
-			outCell.left = cell;
-			outCell.top = cell;
-
-			boolean avaliable = true;
-			if ((cell != null) && (lp.hSize > 1)) {
-				int i = 1;
-				while ((i < lp.hSize) && avaliable) {
-					if (searchNearestCell(outCell, (outCell.right != null) ? outCell.right : cell.right, Cell.RIGHT)) {
-						i++;
-						continue;
-					}
-					if (searchNearestCell(outCell, (outCell.left != cell) ? outCell.left : cell.left, Cell.LEFT)) {
-						i++;
-						continue;
-					}
-					avaliable = false;
-				}
-			}
-			if ((cell != null) && (lp.vSize > 1)) {
-				int i = 1;
-				while ((i < lp.vSize) && avaliable) {
-					if (searchNearestCell(outCell, (outCell.bottom != null) ? outCell.bottom : cell.bottom,
-							Cell.BOTTOM)) {
-						i++;
-						continue;
-					}
-					if (searchNearestCell(outCell, (outCell.top != cell) ? outCell.top : cell.top, Cell.TOP)) {
-						i++;
-						continue;
-					}
-					avaliable = false;
-				}
-			}
-
-			if (outCell.left != null) {
-				mHoveredCells.add(outCell.left);
-			}
-			if (outCell.right != null) {
-				mHoveredCells.add(outCell.right);
-			}
-			if (outCell.bottom != null) {
-				mHoveredCells.add(outCell.bottom);
-			}
-			if (outCell.top != null) {
-				mHoveredCells.add(outCell.top);
-			}
-
-			return avaliable;
-		}
-		return false;
-	}
-
-	private void requestDrop(DragNode node) {
-		if (requestHoveredCells(node) && requestHoverRect(mTmpRect)) {
-			mTmpRegion.set(mFreeCellRegion);
-			mTmpRegion.op(mTmpRect, Op.INTERSECT);
-
-			final Rect rect = mTmpRegion.getBounds();
-			if (mTmpRegion.isRect() && (rect.width() == mTmpRect.width()) && (rect.height() == mTmpRect.height())) {
-				node.startRect.offsetTo(mTmpRect.left, mTmpRect.top);
-			}
-		}
-	}
-
-	private boolean requestHoverRect(Rect rect) {
-		rect.setEmpty();
-		for (final Cell cell : mHoveredCells) {
-			if (!rect.isEmpty()) {
-				rect.union(cell.rect);
-			} else {
-				rect.set(cell.rect);
-			}
-		}
-		return !mHoveredCells.isEmpty() && !rect.isEmpty();
-	}
-
-	private int resolveCellSize(int w, int h) {
-		w = Math.max(0, w - (getPaddingLeft() + getPaddingRight()));
-		h = Math.max(0, h - (getPaddingTop() + getPaddingBottom()));
-
-		final int orientation = getResources().getConfiguration().orientation;
-		switch (orientation) {
-		case Configuration.ORIENTATION_LANDSCAPE:
-			return h / mCellCount;
-		case Configuration.ORIENTATION_PORTRAIT:
-			return w / mCellCount;
-		default:
-			return Math.max(h, w) /mCellCount;
-		}
-	}
-
-	private boolean drawChildDrawable(BitmapDrawable childDrawable, Canvas canvas, View child, long drawingTime) {
-		canvas.save();
-		DragGridLayout.requestRectangle(mTmpRect, child);
-		if (child.getAnimation() == null) {
-			canvas.clipRect(mTmpRect);
-		}
-
-		final boolean result;
-		if (mEditMode && (childDrawable != null) && !childDrawable.getBitmap().isRecycled()) {
-			childDrawable.setBounds(mTmpRect);
-			childDrawable.draw(canvas);
-			result = false;
-		} else {
-			result = super.drawChild(canvas, child, drawingTime);
-		}
-		canvas.restore();
-		return result;
-	}
-
-	@Override
 	protected void dispatchDraw(Canvas canvas) {
+		if (mDebugMode) {
+			mPaint.setStyle(Style.STROKE);
+
+			Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+			paint.setStyle(Style.FILL);
+			Path path = new Path();
+
+			mCellsRegion.getBoundaryPath(path);
+			if (path.isEmpty()){
+				Log.e(VIEW_LOG_TAG, "Cells Region Path empty");
+			}
+
+			mPaint.setColor(0x660000cc);
+			canvas.drawPath(path, paint);
+
+			mFreeCellRegion.getBoundaryPath(path);
+			if (path.isEmpty()){
+				Log.e(VIEW_LOG_TAG, "Free Cell Region Path empty");
+			}
+
+			mPaint.setColor(0x99cc0000);
+			canvas.drawPath(path, paint);
+		}
+
+
 		if (mRootView == null) {
 			drawCellGrid(canvas);
 		}
 		super.dispatchDraw(canvas);
 	}
 
+	private void drawCellGrid(Canvas canvas) {
+		if (mCellDrawable != null) {
+			int i = 0;
+			for (final Cell cell : mCells) {
+				mTmpRect.set(cell.rect);
+
+				final int[] stateSet = new int[] {
+						(mEditMode ? 1 : -1) * R.attr.state_editing,
+						(mPressedCell == cell ? 1 : -1)
+						* android.R.attr.state_pressed };
+
+				canvas.save();
+				canvas.clipRect(cell.rect);
+				mCellDrawable.setState(stateSet);
+				mCellDrawable.setBounds(cell.rect);
+				mCellDrawable.draw(canvas);
+
+				if (mDebugMode) {
+					mPaint.setTextAlign(Align.CENTER);
+					mPaint.setTextSize(30);
+					mPaint.setTypeface(Typeface.DEFAULT_BOLD);
+					mPaint.setColor(Color.GREEN);
+					canvas.drawText(Integer.toString(i), cell.rect.centerX(),
+							cell.rect.centerY(), mPaint);
+					++i;
+				}
+
+				canvas.restore();
+			}
+		}
+
+		if (mDebugMode) {
+			mPaint.setColor(Color.GREEN);
+			mPaint.setStyle(Style.STROKE);
+			mPaint.setStrokeWidth(1.5f);
+			canvas.drawPath(mCellsRegion.getBoundaryPath(), mPaint);
+		}
+	}
+
 	@Override
 	protected boolean drawChild(Canvas canvas, View child, long drawingTime) {
 		if (child == mRootView) {
-			final boolean result = drawChildDrawable(mRootViewDrawable, canvas, child, drawingTime);
+			final boolean result = drawChildDrawable(mRootViewDrawable, canvas,
+					child, drawingTime);
 			drawCellGrid(canvas);
 			return result;
 		} else if (mWidgetVisibility) {
@@ -513,14 +631,210 @@ public class DragGridLayout extends ViewGroup {
 				}
 
 				if ((mDragNode != null) && (mDragNode.viewDrawable == null)) {
-					mDragNode.viewDrawable = DragGridLayout.createDrawingCache(mDragNode.view);
+					mDragNode.viewDrawable = DragGridLayout
+							.createDrawingCache(mDragNode.view);
 				}
-				return drawChildDrawable(mDragNode != null ? mDragNode.viewDrawable : null, canvas, child, drawingTime);
+				return drawChildDrawable(
+						mDragNode != null ? mDragNode.viewDrawable : null,
+								canvas, child, drawingTime);
 			} else {
 				return super.drawChild(canvas, child, drawingTime);
 			}
 		}
 		return false;
+	}
+
+	private boolean drawChildDrawable(BitmapDrawable childDrawable,
+			Canvas canvas, View child, long drawingTime) {
+		canvas.save();
+		requestCurrentRect(mTmpRect, child);
+		if (child.getAnimation() == null) {
+			canvas.clipRect(mTmpRect);
+		}
+
+		final boolean result;
+		if (mEditMode && (childDrawable != null)
+				&& !childDrawable.getBitmap().isRecycled()) {
+			childDrawable.setBounds(mTmpRect);
+			childDrawable.draw(canvas);
+			result = false;
+		} else {
+			result = super.drawChild(canvas, child, drawingTime);
+		}
+		canvas.restore();
+		return result;
+	}
+
+	private void drawHighlight(final View child, final Canvas canvas) {
+		if ((mHighlightDrawable != null) && requestHoverRect(mTmpRect)) {
+			final int[] setState;
+
+			requestFreeCellRegion(mDragNode.view);
+			mTmpRegion.set(mFreeCellRegion);
+			mTmpRegion.op(mTmpRect, Op.INTERSECT);
+
+			mTmpRegion.getBounds(mTmpRect);
+			if (mTmpRegion.isRect() && (child.getWidth() <= mTmpRect.width())
+					&& (child.getHeight() <= mTmpRect.height())) {
+				setState = new int[] { R.attr.state_drop_allow };
+			} else {
+				setState = new int[] { -R.attr.state_drop_allow };
+			}
+
+			mHighlightDrawable.setState(setState);
+
+			mTmpRegion.setEmpty();
+			for (Cell cell : mHoveredCells) {
+				mTmpRegion.op(cell.rect, Op.UNION);
+			}
+			mTmpRegion.getBounds(mTmpRect);
+
+			canvas.save();
+			canvas.clipRect(mTmpRect);
+			mHighlightDrawable.setBounds(mTmpRect);
+			mHighlightDrawable.draw(canvas);
+			canvas.restore();
+		}
+	}
+
+	private void fillHoveredCells(Cell startCell, int vDir, int hDir,
+			int vSize, int hSize) {
+		Cell rowCell = startCell;
+		for (int i = 0; i < vSize; ++i) {
+			Cell colCell = rowCell;
+			for (int j = 0; j < hSize; ++j) {
+				mHoveredCells.add(colCell);
+				colCell = (hDir > 0) ? rowCell.right : rowCell.left;
+				if (colCell == null) {
+					break;
+				}
+			}
+			rowCell = (vDir > 0) ? rowCell.bottom : rowCell.top;
+			if (rowCell == null) {
+				break;
+			}
+		}
+	}
+
+	private Cell findCellUnder(float x, float y) {
+		final Rect rect = new Rect((int) x, (int) y, Math.round(x),
+				Math.round(y));
+		return findCellUnder(rect);
+	}
+
+	private Cell findCellUnder(Rect rect) {
+		Cell resCell = null;
+		final Rect resRect = new Rect();
+		for (final Cell cell : mCells) {
+			if (mTmpRect.setIntersect(cell.rect, rect)) {
+				if ((resCell == null)
+						|| ((mTmpRect.width() * mTmpRect.height()) > (resRect
+								.width() * resRect.height()))) {
+					resRect.set(mTmpRect);
+					resCell = cell;
+				}
+			}
+		}
+
+		return resCell;
+	}
+
+	public Cell findFreeCell(int rows, int cols, Region freeRegion) {
+		if (mCells.isEmpty()) {
+			return null;
+		}
+
+		final Rect boundRect = new Rect();
+		final Rect rect = new Rect(0, 0, cols * mCellSize, rows * mCellSize);
+
+		for (final Cell cell : mCells) {
+			mTmpRegion.set(freeRegion);
+			rect.offsetTo(cell.rect.left, cell.rect.top);
+
+			mTmpRegion.op(rect, Op.INTERSECT);
+			if (!mTmpRegion.isEmpty() && mTmpRegion.isRect()) {
+				mTmpRegion.getBounds(boundRect);
+				if ((boundRect.width() == rect.width())
+						&& (boundRect.height() == rect.height())) {
+					return cell;
+				}
+			}
+		}
+
+		return null;
+	}
+
+	private View findIntersectChild(float x, float y) {
+		final int count = getChildCount();
+		for (int i = count - 1; i >= 0; --i) {
+			final View child = getChildAt(i);
+			if (child == mRootView) {
+				continue;
+			}
+
+			requestCurrentRect(mTmpRect, child);
+			if (mTmpRect.contains((int) x, (int) y)) {
+				return child;
+			}
+		}
+		return null;
+	}
+
+	private Set<Node> findNodesUnder(Node dragNode, Set<Cell> hoveredCells) {
+		if ((dragNode == null) || hoveredCells.isEmpty()) {
+			return Collections.emptySet();
+		}
+
+		final Rect tmpRect = new Rect();
+		final Region tmpRegion = new Region();
+		for (Cell cell : hoveredCells) {
+			tmpRegion.union(cell.rect);
+		}
+
+		Set<Node> nodes = new HashSet<Node>();
+		int childCount = getChildCount();
+		for (int i = 0; i < childCount; ++i) {
+			View child = getChildAt(i);
+			if ((child == mRootView) || (child == dragNode.view)) {
+				continue;
+			}
+
+			requestCurrentRect(tmpRect, child);
+			mTmpRegion.set(tmpRegion);
+			mTmpRegion.op(tmpRect, Op.INTERSECT);
+
+			if (!mTmpRegion.isEmpty()) {
+				nodes.add(new Node(child, tmpRect));
+			}
+		}
+		return nodes;
+	}
+
+	@Override
+	public ViewGroup.LayoutParams generateLayoutParams(AttributeSet attrs) {
+		return new DragGridLayout.LayoutParams(getContext(), attrs);
+	}
+
+	@Override
+	protected DragGridLayout.LayoutParams generateLayoutParams(
+			ViewGroup.LayoutParams p) {
+		if (p == null) {
+			return new DragGridLayout.LayoutParams();
+		} else if (p instanceof MarginLayoutParams) {
+			return new DragGridLayout.LayoutParams((MarginLayoutParams) p);
+		}
+		return new DragGridLayout.LayoutParams(p);
+	}
+
+	private int getArea(int l, int t, int r, int b) {
+		int w = r - l;
+		int h = b - t;
+
+		return (w * w) + (h * h);
+	}
+
+	public List<Cell> getCells() {
+		return mCells;
 	}
 
 	@Override
@@ -541,145 +855,88 @@ public class DragGridLayout extends ViewGroup {
 		return i;
 	}
 
-	private void drawHighlight(final View child, final Canvas canvas) {
-		if ((mHighlightDrawable != null) && requestHoverRect(mTmpRect)) {
-			final int[] setState;
-
-			mTmpRegion.set(mFreeCellRegion);
-			mTmpRegion.op(mTmpRect, Op.INTERSECT);
-
-			mTmpRegion.getBounds(mTmpRect);
-			if (mTmpRegion.isRect() && (child.getWidth() <= mTmpRect.width()) && (child.getHeight() <= mTmpRect.height())) {
-				setState = new int[] { R.attr.state_drop_allow };
-			} else {
-				setState = new int[] { -R.attr.state_drop_allow };
-			}
-
-			mHighlightDrawable.setState(setState);
-
-			canvas.save();
-			canvas.clipRect(mTmpRect);
-			mHighlightDrawable.setBounds(mTmpRect);
-			mHighlightDrawable.draw(canvas);
-			canvas.restore();
-
-			if (mDebugMode){
-				mPaint.setStyle(Style.FILL);
-
-				mPaint.setColor(0x660000cc);
-				canvas.drawPath(mCellsRegion.getBoundaryPath(), mPaint);
-
-				mPaint.setColor(0x66cc0000);
-				canvas.drawPath(mFreeCellRegion.getBoundaryPath(), mPaint);
-
-				mPaint.setColor(0x7700cc00);
-				canvas.drawPath(mTmpRegion.getBoundaryPath(), mPaint);
-			}
-
-		}
+	public Drawable getHighlightDrawable() {
+		return mHighlightDrawable;
 	}
 
-	private void drawCellGrid(Canvas canvas) {
-		if (mCellDrawable != null) {
-			int i = 0;
-			for (final Cell cell : mCells) {
-				mTmpRect.set(cell.rect);
-
-				final int[] stateSet = new int[] { (mEditMode ? 1 : -1) * R.attr.state_editing,
-						(mPressedCell == cell ? 1 : -1) * android.R.attr.state_pressed };
-
-				canvas.save();
-				canvas.clipRect(cell.rect);
-				mCellDrawable.setState(stateSet);
-				mCellDrawable.setBounds(cell.rect);
-				mCellDrawable.draw(canvas);
-
-				if (mDebugMode) {
-					mPaint.setTextAlign(Align.CENTER);
-					mPaint.setTextSize(30);
-					mPaint.setTypeface(Typeface.DEFAULT_BOLD);
-					mPaint.setColor(Color.GREEN);
-					canvas.drawText(Integer.toString(i), cell.rect.centerX(), cell.rect.centerY(), mPaint);
-					++i;
-				}
-
-				canvas.restore();
-			}
-		}
-
-		if (mDebugMode) {
-			mPaint.setColor(Color.GREEN);
-			mPaint.setStyle(Style.STROKE);
-			mPaint.setStrokeWidth(1.5f);
-			canvas.drawPath(mCellsRegion.getBoundaryPath(), mPaint);
-		}
+	@Override
+	public View getRootView() {
+		return mRootView;
 	}
 
-	private static void requestRectangle(Rect outRect, View view) {
-		if ((outRect == null) || (view == null)) {
-			return;
-		}
+	private void init() {
+		mHierarchyChangeListener = new HierarchyChangeListenerImpl();
+		mGestureListener = new GestureListenerImpl();
+		mGestureDetector = new GestureDetectorCompat(getContext(), mGestureListener);
 
-		outRect.left = view.getLeft();
-		outRect.top = view.getTop();
-		outRect.right = view.getRight();
-		outRect.bottom = view.getBottom();
+		mGestureDetector.setIsLongpressEnabled(true);
+		setLongClickable(true);
+		super.setOnHierarchyChangeListener(mHierarchyChangeListener);
+		setChildrenDrawingOrderEnabled(true);
+		setClipToPadding(false);
 	}
 
-	private View findIntersectChild(float x, float y) {
-		final int count = getChildCount();
-		for (int i = count - 1; i >= 0; --i) {
-			final View child = getChildAt(i);
-			if (child == mRootView) {
-				continue;
-			}
-
-			DragGridLayout.requestRectangle(mTmpRect, child);
-			if (mTmpRect.contains((int) x, (int) y)) {
-				return child;
-			}
-		}
-		return null;
+	public boolean isDebugMode() {
+		return mDebugMode;
 	}
 
 	public boolean isEditMode() {
 		return mEditMode;
 	}
 
-	private Rect requestChildViewRect(Rect outRect, View view) {
-		if (outRect == null) {
-			outRect = new Rect();
-		}
-
-		final LayoutParams lp = (LayoutParams) view.getLayoutParams();
-
-		outRect.left = lp.x;
-		outRect.top = lp.y;
-		outRect.right = outRect.left + (mCellSize * lp.hSize);
-		outRect.bottom = outRect.top + (mCellSize * lp.vSize);
-
-		return outRect;
+	public boolean isShowWidget() {
+		return mWidgetVisibility;
 	}
 
-	private void requestFreeCellRegion(View view) {
-		mFreeCellRegion.set(mCellsRegion);
-		final int count = getChildCount();
-		for (int i = count - 1; i >= 0; --i) {
-			final View child = getChildAt(i);
-			if ((child == mRootView) || (child == view)) {
-				continue;
-			}
+	@Override
+	protected void measureChild(View child, int parentWidthMeasureSpec,
+			int parentHeightMeasureSpec) {
+		final int childWidthMeasureSpec;
+		final int childHeightMeasureSpec;
+		final LayoutParams lp = (LayoutParams) child.getLayoutParams();
 
-			mFreeCellRegion.op(requestChildViewRect(mTmpRect, child), Op.DIFFERENCE);
+		if (mRootView == child) {
+			childWidthMeasureSpec = parentWidthMeasureSpec;
+			childHeightMeasureSpec = parentHeightMeasureSpec;
+		} else if (((mDragNode) != null) && (mDragNode.view == child)) {
+			final int width = mDragNode.currentRect.width();
+			final int height = mDragNode.currentRect.height();
+
+			final int widthSize = MeasureSpec.getSize(parentWidthMeasureSpec);
+			final int heightSize = MeasureSpec.getSize(parentHeightMeasureSpec);
+
+			childWidthMeasureSpec = ViewGroup
+					.getChildMeasureSpec(MeasureSpec.makeMeasureSpec(widthSize,
+							MeasureSpec.EXACTLY), getPaddingLeft()
+							+ getPaddingRight(), width);
+			childHeightMeasureSpec = ViewGroup.getChildMeasureSpec(MeasureSpec
+					.makeMeasureSpec(heightSize, MeasureSpec.EXACTLY),
+					getPaddingTop() + getPaddingBottom(), height);
+		} else {
+			final int width = (lp.hSize * mCellSize)
+					- (lp.leftMargin + lp.rightMargin);
+			final int height = (lp.vSize * mCellSize)
+					- (lp.topMargin + lp.bottomMargin);
+
+			childWidthMeasureSpec = ViewGroup.getChildMeasureSpec(
+					parentWidthMeasureSpec, getPaddingLeft()
+					+ getPaddingRight(), width);
+			childHeightMeasureSpec = ViewGroup.getChildMeasureSpec(
+					parentHeightMeasureSpec, getPaddingTop()
+					+ getPaddingBottom(), height);
 		}
+		child.measure(childWidthMeasureSpec, childHeightMeasureSpec);
 	}
 
-	private void stopAnimation(View view) {
-		if ((view != null) && (view.getAnimation() != null)) {
-			view.getAnimation().cancel();
-			view.setAnimation(null);
-			invalidate();
+	@Override
+	protected void onDetachedFromWindow() {
+		if (mRootViewDrawable != null) {
+			mRootViewDrawable.getBitmap().recycle();
+			mRootViewDrawable = null;
 		}
+		mLoongHoveredRequested = false;
+		mHandler.removeCallbacks(mLongHoverDispatcher);
+		super.onDetachedFromWindow();
 	}
 
 	@Override
@@ -688,6 +945,95 @@ public class DragGridLayout extends ViewGroup {
 			return true;
 		}
 		return super.onInterceptTouchEvent(ev);
+	}
+
+	@Override
+	protected void onLayout(boolean changed, int l, int t, int r, int b) {
+		final int count = getChildCount();
+
+		for (int i = 0; i < count; i++) {
+			final View child = getChildAt(i);
+			if (child.getVisibility() == GONE) {
+				continue;
+			}
+
+			final int childLeft;
+			final int childTop;
+			final int childRight;
+			final int childBottom;
+
+			final DragGridLayout.LayoutParams lp = (DragGridLayout.LayoutParams) child
+					.getLayoutParams();
+
+			if ((mDragNode != null) && (mDragNode.view == child)) {
+				childLeft = mDragNode.currentRect.left;
+				childTop = mDragNode.currentRect.top;
+				childRight = mDragNode.currentRect.right;
+				childBottom = mDragNode.currentRect.bottom;
+			} else if (child == mRootView) {
+				childLeft = 0;
+				childTop = 0;
+				childRight = r - l;
+				childBottom = b - t;
+			} else if ((lp.x != UNKNOWN) && (lp.y != UNKNOWN)) {
+				childLeft = lp.x + lp.leftMargin;
+				childTop = lp.y + lp.topMargin;
+				childRight = childLeft + child.getMeasuredWidth();
+				childBottom = childTop + child.getMeasuredHeight();
+			} else {
+				childLeft = 0;
+				childTop = 0;
+				childRight = 0;
+				childBottom = 0;
+			}
+
+			child.layout(childLeft, childTop, childRight, childBottom);
+		}
+	}
+
+	@Override
+	protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+		super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+
+		measureChildren(widthMeasureSpec, heightMeasureSpec);
+	}
+
+	@Override
+	protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+		mCellsRegion.setEmpty();
+
+		mCells.clear();
+		mHoveredCells.clear();
+		mCellSize = resolveCellSize(w, h);
+		if (!(mCellSize > 0)) {
+			return;
+		}
+
+		int hCellCount = (w - (getPaddingLeft() + getPaddingRight()))
+				/ mCellSize;
+		int x = getPaddingLeft()
+				+ resolveOffset(w - (getPaddingLeft() + getPaddingRight()),
+						mCellSize, hCellCount, mGravity
+						& Gravity.HORIZONTAL_GRAVITY_MASK);
+		int vCcellCount = (h - (getPaddingTop() + getPaddingBottom()))
+				/ mCellSize;
+		int y = getPaddingTop()
+				+ resolveOffset(h - (getPaddingTop() + getPaddingBottom()),
+						mCellSize, vCcellCount,
+						(mGravity & Gravity.VERTICAL_GRAVITY_MASK));
+
+		final Cell[] prevRow = new Cell[hCellCount];
+		final Cell[] currRow = new Cell[hCellCount];
+
+		while ((y + mCellSize) < h) {
+			resolveCell(currRow, prevRow, x, y, mCells, mCellsRegion);
+			System.arraycopy(currRow, 0, prevRow, 0, currRow.length);
+			y += mCellSize;
+		}
+
+		if (validateChildrenLayoutParams()) {
+			requestLayout();
+		}
 	}
 
 	@Override
@@ -713,8 +1059,9 @@ public class DragGridLayout extends ViewGroup {
 
 					stopAnimation(mDragNode != null ? mDragNode.view : null);
 
-					mDragNode = new DragNode(child);
-					DragNode.scale(mDragNode.currentRect, mScaleFactor);
+					mDragNode = new Node(child, requestPreferredRect(mTmpRect,
+							child));
+					Node.scale(mDragNode.currentRect, mScaleFactor);
 
 					requestFreeCellRegion(child);
 					requestHoveredCells(mDragNode);
@@ -723,11 +1070,15 @@ public class DragGridLayout extends ViewGroup {
 						mDragListener.onDrag(mDragNode.view, this);
 					}
 
-					final Animation animation = new ScaleAnimation((1f - mScaleFactor) + 1f, 1f, (1f - mScaleFactor) + 1f, 1f,
-							Animation.RELATIVE_TO_SELF, 0.5f, Animation.RELATIVE_TO_SELF, 0.5f);
+					final Animation animation = new ScaleAnimation(
+							(1f - mScaleFactor) + 1f, 1f,
+							(1f - mScaleFactor) + 1f, 1f,
+							Animation.RELATIVE_TO_SELF, 0.5f,
+							Animation.RELATIVE_TO_SELF, 0.5f);
 
 					animation.setDuration(DURATION);
-					animation.setAnimationListener(new AbstractAnimationListener() {
+					animation
+					.setAnimationListener(new AbstractAnimationListener() {
 						@Override
 						public void onAnimationEnd(Animation animation) {
 							mTmpRect.set(mDragNode.startRect);
@@ -764,19 +1115,27 @@ public class DragGridLayout extends ViewGroup {
 					return true;
 				}
 			} else if (mDragNode != null) {
-				mDragNode.currentRect.offset((int) (x - mPrevX), (int) (y - mPrevY));
+				mDragNode.currentRect.offset((int) (x - mPrevX),
+						(int) (y - mPrevY));
 				if (mDebugMode) {
-					Log.e(VIEW_LOG_TAG, "x=" + x + " y=" + y + " prevX=" + mPrevX + " prevY=" + mPrevY + " dX="
+					Log.w(VIEW_LOG_TAG, "ACTION_MOVE: x=" + x + " y=" + y
+							+ " prevX=" + mPrevX + " prevY=" + mPrevY + " dX="
 							+ (x - mPrevX) + " dY=" + (y - mPrevY));
 				}
 
-				if (!requestHoveredCells(mDragNode) && !mHoveredCells.isEmpty()
-						&& (Math.abs(x - mPrevX) < DELTA) && (Math.abs(y - mPrevY) < DELTA)){
-					if (!mLoongHoveredRequested){
+				requestHoveredCells(mDragNode);
+				boolean dragged = (Math.abs(x - mPrevX) < DELTA)
+						&& (Math.abs(y - mPrevY) < DELTA);
+				if (dragged) {
+					requestReorderRevert();
+				}
+				if (!mHoveredCells.isEmpty() && dragged) {
+					if (!mLoongHoveredRequested) {
 						mLoongHoveredRequested = true;
-						mHandler.postDelayed(mLongHoverDispatcher,  LONGPRESS_TIMEOUT+TAP_TIMEOUT);
+						mHandler.postDelayed(mLongHoverDispatcher,
+								LONGPRESS_TIMEOUT + TAP_TIMEOUT);
 					}
-				}else{
+				} else if (mLoongHoveredRequested) {
 					mLoongHoveredRequested = false;
 					mHandler.removeCallbacks(mLongHoverDispatcher);
 				}
@@ -795,13 +1154,16 @@ public class DragGridLayout extends ViewGroup {
 			mHandler.removeCallbacks(mLongHoverDispatcher);
 			if (mPressedCell != null) {
 				if (mCellClickListener != null) {
-					mCellClickListener.onClick(new Point(mPressedCell.rect.left, mPressedCell.rect.top) , this);
+					mCellClickListener.onClick(new Point(
+							mPressedCell.rect.left, mPressedCell.rect.top),
+							this);
 				}
 				mPressedCell = null;
 				invalidate();
 				return true;
 			} else if (mDragNode != null) {
-				mDragNode.currentRect.offset((int) (x - mPrevX), (int) (y - mPrevY));
+				mDragNode.currentRect.offset((int) (x - mPrevX),
+						(int) (y - mPrevY));
 				requestDrop(mDragNode);
 
 				mPrevX = x;
@@ -816,12 +1178,16 @@ public class DragGridLayout extends ViewGroup {
 				lp.x = mDragNode.startRect.left;
 				lp.y = mDragNode.startRect.top;
 
+				mNodes.clear();
 				mDragNode.startRect.offset(lp.leftMargin, lp.topMargin);
 
 				final AnimationSet animation = new AnimationSet(true);
-				animation.addAnimation(new TranslateAnimation(mDragNode.currentRect.left - mDragNode.startRect.left, 0,
-						mDragNode.currentRect.top - mDragNode.startRect.top, 0));
-				animation.addAnimation(new ScaleAnimation(mScaleFactor, 1f, mScaleFactor, 1f));
+				animation.addAnimation(new TranslateAnimation(
+						mDragNode.currentRect.left - mDragNode.startRect.left,
+						0, mDragNode.currentRect.top - mDragNode.startRect.top,
+						0));
+				animation.addAnimation(new ScaleAnimation(mScaleFactor, 1f,
+						mScaleFactor, 1f));
 
 				animation.setDuration(DURATION);
 				animation.setAnimationListener(new AbstractAnimationListener() {
@@ -858,134 +1224,309 @@ public class DragGridLayout extends ViewGroup {
 		return super.onTouchEvent(ev);
 	}
 
-	private Cell findCellUnder(float x, float y) {
-		final Rect rect = new Rect((int) x, (int) y, Math.round(x), Math.round(y));
-		return findCellUnder(rect);
-	}
-
-	private Cell findCellUnder(Rect rect) {
-		Cell resCell = null;
-		final Rect resRect = new Rect();
-		for (final Cell cell : mCells) {
-			if (mTmpRect.setIntersect(cell.rect, rect)
-					&& ((resCell == null) || (resRect.left > mTmpRect.left) || (resRect.top > mTmpRect.top))) {
-				mTmpRegion.set(mFreeCellRegion);
-				resRect.set(mTmpRect);
-				resCell = cell;
-			}
-		}
-
-		return resCell;
-	}
-
-	public void setGestureListener(OnGestureListener listener) {
-		mGestureListener.gestureListener = listener;
-	}
-
-	@Override
-	public View getRootView() {
-		return mRootView;
-	}
-
-	public void setRootViewRes(int viewId) {
-		setRootView(View.inflate(getContext(), viewId, null));
-	}
-
-	public void setRootView(View view) {
-		if (view != mRootView) {
-			removeRootView();
-		}
-		mRootView = view;
-		addView(mRootView, 0, new LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-				android.view.ViewGroup.LayoutParams.MATCH_PARENT));
-	}
-
-	@Override
-	public void addView(View child, int index, android.view.ViewGroup.LayoutParams params) {
-		if ((mRootViewId != UNKNOWN) && (child.getId() == mRootViewId)) {
-			if (mRootView == child) {
-				return;
-			}
-
-			if (mRootView != null) {
-				mRootView.setAnimation(null);
-				removeView(mRootView);
-			}
-			mRootView = child;
-			index = 0;
-		}
-		super.addView(child, index, validateLayoutParams(params));
-	}
-
 	public void removeRootView() {
 		if (mRootView != null) {
 			super.removeView(mRootView);
 		}
 	}
 
-	public void setEditMode(boolean value) {
-		if (mEditMode == value) {
-			return;
+	private Rect requestCurrentRect(Rect outRect, View view) {
+		if (outRect == null) {
+			outRect = new Rect();
 		}
 
-		mEditMode = value;
-		if (mRootView != null) {
-			if (mEditMode) {
-				mRootViewDrawable = DragGridLayout.createDrawingCache(mRootView);
-			} else if (mRootViewDrawable != null) {
-				mRootViewDrawable.getBitmap().recycle();
-				mRootViewDrawable = null;
+		outRect.left = view.getLeft();
+		outRect.top = view.getTop();
+		outRect.right = view.getRight();
+		outRect.bottom = view.getBottom();
+
+		return outRect;
+	}
+
+	private void requestDrop(Node node) {
+		if (requestHoveredCells(node) && requestHoverRect(mTmpRect)) {
+			mTmpRegion.set(mFreeCellRegion);
+			mTmpRegion.op(mTmpRect, Op.INTERSECT);
+
+			final Rect rect = mTmpRegion.getBounds();
+			if (mTmpRegion.isRect() && (rect.width() == mTmpRect.width())
+					&& (rect.height() == mTmpRect.height())) {
+				node.startRect.offsetTo(mTmpRect.left, mTmpRect.top);
 			}
+		}
+	}
+
+	private void requestFreeCellRegion(View... views) {
+		mFreeCellRegion.set(mCellsRegion);
+		final int count = getChildCount();
+		for (int i = count - 1; i >= 0; --i) {
+			final View child = getChildAt(i);
+			if (child == mRootView) {
+				continue;
+			}
+			boolean needContinue = false;
+
+			for (View view : views) {
+				if (view == child) {
+					needContinue = true;
+					break;
+				}
+			}
+			if (needContinue) {
+				continue;
+			}
+
+			LayoutParams lp = (LayoutParams) child.getLayoutParams();
+			if ((lp.x == UNKNOWN) || (lp.y == UNKNOWN)) {
+				continue;
+			}
+
+			mFreeCellRegion.op(requestPreferredRect(mTmpRect, child),
+					Op.DIFFERENCE);
+		}
+	}
+
+	private boolean requestHoveredCells(Node node) {
+		mHoveredCells.clear();
+		if (mCellsRegion.quickReject(node.currentRect)) {
+			return false;
+		}
+		requestFreeCellRegion();
+
+		mTmpRegion.set(mCellsRegion);
+		mTmpRegion.op(node.currentRect, Op.INTERSECT);
+
+		final View view = node.view;
+		final LayoutParams lp = (LayoutParams) view.getLayoutParams();
+
+		int cellCount = lp.hSize * lp.vSize;
+
+		final Rect rect = mTmpRegion.getBounds();
+
+		Cell ltCell = null;
+		Cell rtCell = null;
+		Cell lbCell = null;
+		Cell rbCell = null;
+
+		mTmpRegion.setEmpty();
+		for (final Cell cell : mCells) {
+			if (mTmpRect.setIntersect(cell.rect, rect)) {
+				if (mTmpRegion.isEmpty()) {
+					mTmpRegion.set(cell.rect);
+					ltCell = rtCell = lbCell = rbCell = cell;
+				} else {
+					mTmpRegion.op(cell.rect, Op.UNION);
+
+					if ((ltCell.rect.left >= cell.rect.left)
+							&& (ltCell.rect.top >= cell.rect.top)) {
+						ltCell = cell;
+					}
+					if ((rtCell.rect.right <= cell.rect.right)
+							&& (rtCell.rect.top >= cell.rect.top)) {
+						rtCell = cell;
+					}
+					if ((rbCell.rect.bottom <= cell.rect.bottom)
+							&& (lbCell.rect.left >= cell.rect.left)) {
+						lbCell = cell;
+					}
+					if ((rbCell.rect.bottom <= cell.rect.bottom)
+							&& (rbCell.rect.right <= cell.rect.right)) {
+						rbCell = cell;
+					}
+				}
+			}
+		}
+
+		if ((ltCell == null) || (rtCell == null) || (lbCell == null)
+				|| (rbCell == null)) {
+			return false;
+		}
+
+		mTmpRegion.getBounds(mTmpRect);
+		int lt = getArea(mTmpRect.left, mTmpRect.top, rect.left, rect.top);
+		int rt = getArea(rect.right, mTmpRect.top, mTmpRect.right, rect.top);
+		int lb = getArea(mTmpRect.left, rect.bottom, rect.left, mTmpRect.bottom);
+		int rb = getArea(rect.right, rect.bottom, mTmpRect.right,
+				mTmpRect.bottom);
+
+		int min = Math.min(Math.min(lt, rt), Math.min(lb, rb));
+		if (min == lt) {
+			fillHoveredCells(ltCell, 1, 1, lp.vSize, lp.hSize);
+		} else if (min == rt) {
+			fillHoveredCells(rtCell, 1, -1, lp.vSize, lp.hSize);
+		} else if (min == lb) {
+			fillHoveredCells(lbCell, -1, 1, lp.vSize, lp.hSize);
+		} else if (min == rb) {
+			fillHoveredCells(rbCell, -1, -1, lp.vSize, lp.hSize);
+		}
+
+		return cellCount == mHoveredCells.size();
+	}
+
+	private boolean requestHoverRect(Rect rect) {
+		rect.setEmpty();
+		for (final Cell cell : mHoveredCells) {
+			if (!rect.isEmpty()) {
+				rect.union(cell.rect);
+			} else {
+				rect.set(cell.rect);
+			}
+		}
+		return !mHoveredCells.isEmpty() && !rect.isEmpty();
+	}
+
+	private Rect requestPreferredRect(Rect outRect, View view) {
+		if (outRect == null) {
+			outRect = new Rect();
+		}
+		final LayoutParams lp = checkLayoutParams(view.getLayoutParams()) ? (LayoutParams) view
+				.getLayoutParams() : generateLayoutParams(view
+						.getLayoutParams());
+
+				outRect.left = lp.x;
+				outRect.top = lp.y;
+				outRect.right = outRect.left + (mCellSize * lp.hSize);
+				outRect.bottom = outRect.top + (mCellSize * lp.vSize);
+
+				return outRect;
+	}
+
+	private void requestReorder() {
+		Set<Node> nodes = findNodesUnder(mDragNode, mHoveredCells);
+
+		for (final Node childNode : nodes) {
+			requestFreeCellRegion(childNode.view);
+			mFreeCellRegion.op(mDragNode.currentRect, Op.DIFFERENCE);
+
+			final LayoutParams lp = validateLayoutParams(
+					childNode.view.getLayoutParams(), mFreeCellRegion);
+			childNode.view.setLayoutParams(lp);
+
+			requestPreferredRect(childNode.currentRect, childNode.view);
+
+			final AnimationSet animation = new AnimationSet(true);
+			animation.addAnimation(new TranslateAnimation(
+					childNode.startRect.left - childNode.currentRect.left, 0,
+					childNode.startRect.top - childNode.currentRect.top, 0));
+
+			animation.setDuration(DURATION / 2);
+			animation.setAnimationListener(new AbstractAnimationListener() {
+				@Override
+				public void onAnimationEnd(final Animation a) {
+					childNode.view.setAnimation(null);
+
+					requestLayout();
+					invalidate();
+				}
+			});
+			childNode.view.setAnimation(animation);
+			mNodes.add(childNode);
+		}
+
+		if (!nodes.isEmpty()) {
+			requestFreeCellRegion();
+			requestLayout();
 			invalidate();
 		}
 	}
 
-	@SuppressWarnings("deprecation")
-	private static BitmapDrawable createDrawingCache(View view) {
-		BitmapDrawable drawable = null;
-		view.buildDrawingCache();
-		final Bitmap bitmap = view.getDrawingCache();
-		if (bitmap != null) {
-			drawable = new BitmapDrawable(Bitmap.createBitmap(bitmap));
-			bitmap.recycle();
+	private void requestReorderRevert() {
+		boolean needInvalidate = false;
+		for (final Iterator<Node> it = mNodes.iterator(); it.hasNext();) {
+			final Node node = it.next();
+			requestFreeCellRegion();
+			for (Cell cell : mHoveredCells) {
+				mFreeCellRegion.op(cell.rect, Op.DIFFERENCE);
+			}
+
+			mTmpRegion.set(mFreeCellRegion);
+			mTmpRegion.op(node.startRect, Op.INTERSECT);
+			mTmpRegion.getBounds(mTmpRect);
+			if ((mTmpRect.width() == node.startRect.width())
+					&& (mTmpRect.height() == node.startRect.height())) {
+				it.remove();
+
+				LayoutParams lp = (LayoutParams) node.view.getLayoutParams();
+				lp.x = node.startRect.left - lp.leftMargin;
+				lp.y = node.startRect.top - lp.topMargin;
+
+				final AnimationSet animation = new AnimationSet(true);
+				animation.addAnimation(new TranslateAnimation(
+						-node.startRect.left + node.currentRect.left, 0,
+						-node.startRect.top + node.currentRect.top, 0));
+
+				animation.setDuration(DURATION / 2);
+				animation.setAnimationListener(new AbstractAnimationListener() {
+					@Override
+					public void onAnimationEnd(final Animation a) {
+						node.view.setAnimation(null);
+
+						requestLayout();
+						invalidate();
+					}
+				});
+				node.view.setAnimation(animation);
+				needInvalidate = true;
+			}
 		}
-		view.destroyDrawingCache();
-		return drawable;
-	}
 
-	@Override
-	protected void onDetachedFromWindow() {
-		if (mRootViewDrawable != null) {
-			mRootViewDrawable.getBitmap().recycle();
-			mRootViewDrawable = null;
+		if (needInvalidate) {
+			invalidate();
 		}
-		mLoongHoveredRequested = false;
-		mHandler.removeCallbacks(mLongHoverDispatcher);
-		super.onDetachedFromWindow();
 	}
 
-	public List<Cell> getCells() {
-		return mCells;
+	private void resolveCell(Cell[] curr, Cell[] prev, int offsetX,
+			int offsetY, List<Cell> cells, Region cellsRegion) {
+		for (int i = 0; i < curr.length; ++i) {
+			curr[i] = new Cell(offsetX + (i * mCellSize), offsetY, mCellSize);
+
+			if (((i - 1) != -1) && (curr[i - 1] != null)) {
+				curr[i - 1].right = curr[i];
+			}
+
+			curr[i].left = (i - 1) != -1 ? curr[i - 1] : null;
+			curr[i].top = (prev[i]);
+			if (prev[i] != null) {
+				prev[i].bottom = curr[i];
+			}
+
+			cells.add(curr[i]);
+			cellsRegion.union(curr[i].rect);
+		}
 	}
 
-	public void setDragListener(OnViewDragListener dragListener) {
-		this.mDragListener = dragListener;
+	private int resolveCellSize(int w, int h) {
+		w = Math.max(0, w - (getPaddingLeft() + getPaddingRight()));
+		h = Math.max(0, h - (getPaddingTop() + getPaddingBottom()));
+
+		final int orientation = getResources().getConfiguration().orientation;
+		switch (orientation) {
+		case Configuration.ORIENTATION_LANDSCAPE:
+			return h / mCellCount;
+		case Configuration.ORIENTATION_PORTRAIT:
+			return w / mCellCount;
+		default:
+			return Math.max(h, w) / mCellCount;
+		}
 	}
 
-	public void setDragScaleCoefficient(float scale) {
-		this.mScaleFactor = scale;
+	private int resolveOffset(int size, int cellSize, int cellCount, int gravity) {
+		switch (gravity) {
+		case Gravity.LEFT:
+		case Gravity.TOP:
+			return 0;
+		case Gravity.RIGHT:
+		case Gravity.BOTTOM:
+			return Math.max(0, size - (cellCount * cellSize));
+		case Gravity.CENTER_HORIZONTAL:
+		case Gravity.CENTER_VERTICAL:
+		default:
+			return Math.max(0, (size - (cellCount * cellSize)) / 2);
+		}
 	}
 
-	public Drawable getHighlightDrawable() {
-		return mHighlightDrawable;
-	}
-
-	public void setHighlightDrawable(Drawable highlightDrawable) {
-		this.mHighlightDrawable = highlightDrawable;
-	}
-
-	public void setHighlightResource(int highlightRes) {
-		setHighlightDrawable(getResources().getDrawable(highlightRes));
+	public void setCellClickListener(OnCellClickListener cellClickListener) {
+		this.mCellClickListener = cellClickListener;
 	}
 
 	public void setCellDrawable(Drawable cellDrawable) {
@@ -996,10 +1537,6 @@ public class DragGridLayout extends ViewGroup {
 		setCellDrawable(getResources().getDrawable(cellRes));
 	}
 
-	public boolean isDebugMode() {
-		return mDebugMode;
-	}
-
 	public void setDebugMode(boolean debugMode) {
 		if (this.mDebugMode != debugMode) {
 			this.mDebugMode = debugMode;
@@ -1007,105 +1544,65 @@ public class DragGridLayout extends ViewGroup {
 		}
 	}
 
-	private void validateChildLayoutParams() {
-		boolean needRequestLayout = false;
-		final int size = getChildCount();
-		for (int i = 0; i < size; ++i) {
-			final View child = getChildAt(i);
-			if ((child != mRootView) &&
-					(child.getVisibility() != GONE)) {
-				LayoutParams lp = (LayoutParams) child.getLayoutParams();
-				if ((lp.x == UNKNOWN) || (lp.y == UNKNOWN)){
-					child.setLayoutParams(validateLayoutParams(lp));
-					needRequestLayout = true;
-				}
+	public void setDragListener(OnViewDragListener dragListener) {
+		this.mDragListener = dragListener;
+	}
+
+	public void setDragScaleCoefficient(float scale) {
+		this.mScaleFactor = scale;
+	}
+
+	public void setEditMode(boolean value) {
+		if (mEditMode == value) {
+			return;
+		}
+
+		mEditMode = value;
+		if (mRootView != null) {
+			if (mEditMode) {
+				mRootViewDrawable = DragGridLayout
+						.createDrawingCache(mRootView);
+			} else if (mRootViewDrawable != null) {
+				mRootViewDrawable.getBitmap().recycle();
+				mRootViewDrawable = null;
 			}
 		}
-
-		if (needRequestLayout){
-			requestLayout();
-		}
+		postInvalidate();
 	}
 
-	private LayoutParams validateLayoutParams(ViewGroup.LayoutParams srcLp) {
-		final LayoutParams lp;
-		if (checkLayoutParams(srcLp)) {
-			lp = (LayoutParams) srcLp;
-		} else {
-			lp = generateLayoutParams(srcLp);
-		}
-
-		if (mCells.isEmpty()){
-			return lp;
-		}
-
-		if (checkIsSpaceFree(lp)){
-			return lp;
-		}
-
-		final Cell cell = findFreeCell(lp.vSize, lp.hSize);
-		if (cell != null) {
-			lp.x = cell.rect.left;
-			lp.y = cell.rect.top;
-		}
-		return lp;
+	public void setGestureListener(OnGestureListener listener) {
+		mGestureListener.gestureListener = listener;
 	}
 
-	private boolean checkIsSpaceFree(LayoutParams lp){
-		final Rect rect = new Rect(lp.leftMargin,
-				lp.topMargin,
-				(lp.hSize * mCellSize)-lp.rightMargin,
-				(lp.vSize * mCellSize)-lp.bottomMargin);
-		rect.offset(lp.x, lp.y);
-
-		requestFreeCellRegion(null);
-
-		mTmpRegion.set(mFreeCellRegion);
-		mTmpRegion.op(rect, Op.INTERSECT);
-		if (!mTmpRegion.isEmpty() && mTmpRegion.isRect()) {
-			mTmpRegion.getBounds(mTmpRect);
-			return ((mTmpRect.width() == rect.width()) && (mTmpRect.height() == rect.height()));
-		}
-		return false;
+	public void setHighlightDrawable(Drawable highlightDrawable) {
+		this.mHighlightDrawable = highlightDrawable;
 	}
 
-	public Cell findFreeCell(int rows, int cols) {
-		final Rect boundRect = new Rect();
-		final Rect rect = new Rect(0, 0, cols * mCellSize, rows * mCellSize);
-
-		requestFreeCellRegion(null);
-
-		Cell resCell = null;
-		for (final Cell cell : mCells) {
-			mTmpRegion.set(mFreeCellRegion);
-			rect.offsetTo(cell.rect.left, cell.rect.top);
-
-			mTmpRegion.op(rect, Op.INTERSECT);
-			if (!mTmpRegion.isEmpty() && mTmpRegion.isRect()) {
-				mTmpRegion.getBounds(boundRect);
-				if ((boundRect.width() == rect.width()) && (boundRect.height() == rect.height())) {
-					if ((resCell == null) ||
-							(cell.rect.top < resCell.rect.top) ||
-							((cell.rect.left < resCell.rect.left) && (cell.rect.top == resCell.rect.top))) {
-						resCell = cell;
-					}
-				}
-			}
-		}
-
-		return resCell;
+	public void setHighlightResource(int highlightRes) {
+		setHighlightDrawable(getResources().getDrawable(highlightRes));
 	}
 
-	public void setCellClickListener(OnCellClickListener cellClickListener) {
-		this.mCellClickListener = cellClickListener;
+	@Override
+	public void setOnHierarchyChangeListener(OnHierarchyChangeListener listener) {
+		this.mHierarchyChangeListener.listener = listener;
 	}
 
 	public void setRemoveListener(OnViewRemoveListener removeListener) {
 		this.mRemoveListener = removeListener;
 	}
 
-	public boolean isShowWidget() {
-		return mWidgetVisibility;
+	public void setRootView(View view) {
+		if (view != mRootView) {
+			removeRootView();
+		}
+		mRootView = view;
+		addView(mRootView, 0, new LayoutParams(0, 0,
+				android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+				android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+	}
+
+	public void setRootViewRes(int viewId) {
+		setRootView(View.inflate(getContext(), viewId, null));
 	}
 
 	public void setShowWidget(boolean showWidget) {
@@ -1115,300 +1612,60 @@ public class DragGridLayout extends ViewGroup {
 		}
 	}
 
-	public static class LayoutParams extends MarginLayoutParams {
-		int x= UNKNOWN;
-		int y= UNKNOWN;
-
-		int vSize = 1;
-		int hSize = 1;
-
-		boolean animation;
-
-		@Override
-		public String toString() {
-			return String.format(Locale.ENGLISH, "a=%s [x=%d;y=%d] [h=%d;v=%d]", Boolean.toString(animation), x, y,
-					hSize, vSize);
-		}
-
-		LayoutParams() {
-			super(MATCH_PARENT, MATCH_PARENT);
-		}
-
-		public LayoutParams(Context c, AttributeSet attrs) {
-			super(c, attrs);
-			final TypedArray a = c.obtainStyledAttributes(attrs, R.styleable.DragGridLayout);
-
-			vSize = a.getInt(R.styleable.DragGridLayout_vertical_size, 1);
-			hSize = a.getInt(R.styleable.DragGridLayout_horizontal_size, 1);
-
-			a.recycle();
-		}
-
-		public void setPosition(Point point){
-			x = point.x;
-			y = point.y;
-		}
-
-		public Point getPosition(){
-			return new Point(x, y);
-		}
-
-		public LayoutParams(int width, int height) {
-			super(width, height);
-		}
-
-		public LayoutParams(LayoutParams source) {
-			super(source);
-
-			x = source.x;
-			y = source.y;
-			vSize = source.vSize;
-			hSize = source.hSize;
-		}
-
-		public LayoutParams(MarginLayoutParams source) {
-			super(source);
-		}
-
-		public LayoutParams(ViewGroup.LayoutParams source) {
-			super(source);
+	private void stopAnimation(View view) {
+		if ((view != null) && (view.getAnimation() != null)) {
+			view.getAnimation().cancel();
+			view.setAnimation(null);
+			invalidate();
 		}
 	}
 
-	private final class GestureListenerImpl implements OnGestureListener {
-		OnGestureListener gestureListener;
+	private boolean validateChildrenLayoutParams() {
+		boolean needRequestLayout = false;
+		int childCount = getChildCount();
+		for (int i = 0; i < childCount; ++i) {
+			View child = getChildAt(i);
 
-		@Override
-		public boolean onSingleTapUp(MotionEvent e) {
-			if ((gestureListener != null) && gestureListener.onSingleTapUp(e)) {
-				return true;
+			if (child == mRootView) {
+				continue;
 			}
-			return false;
-		}
 
-		@Override
-		public void onShowPress(MotionEvent e) {
-			if (gestureListener != null) {
-				gestureListener.onShowPress(e);
-			}
-		}
-
-		@Override
-		public boolean onScroll(MotionEvent e1, MotionEvent e2, float distanceX, float distanceY) {
-			if ((gestureListener != null) && gestureListener.onScroll(e1, e2, distanceX, distanceY)) {
-				return true;
-			}
-			return false;
-		}
-
-		@Override
-		public void onLongPress(MotionEvent ev) {
-			if (!mEditMode) {
-				final View child = findIntersectChild(ev.getX(), ev.getY());
-				if (child != null) {
-					setEditMode(true);
-				}
-			}
-			if (gestureListener != null) {
-				gestureListener.onLongPress(ev);
+			LayoutParams lp = (LayoutParams) child.getLayoutParams();
+			if ((lp.x == UNKNOWN) || (lp.y == UNKNOWN)) {
+				child.setLayoutParams(validateLayoutParams(lp));
+				needRequestLayout = true;
 			}
 		}
-
-		@Override
-		public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
-			Log.e(VIEW_LOG_TAG, "velocityX="+velocityX+" velocityY="+velocityY);
-			if ((mDragNode != null) && (Math.abs(velocityY) > 1000)){
-				final View view = mDragNode.view;
-				final Animation animation = new TranslateAnimation(0, 0, 0, (velocityY > 0 ? 1 : -1) * getMeasuredHeight());
-
-				animation.setDuration(DURATION);
-				animation.setInterpolator(getContext(), android.R.anim.accelerate_interpolator);
-				animation.setAnimationListener(new AbstractAnimationListener() {
-					@Override
-					public void onAnimationEnd(Animation animation) {
-						mDragNode = null;
-
-						view.setAnimation(null);
-						removeView(view);
-					}
-				});
-
-				view.startAnimation(animation);
-				return true;
-			}
-
-			if ((gestureListener != null) && gestureListener.onFling(e1, e2, velocityX, velocityY)) {
-				return true;
-			}
-			return false;
-		}
-
-		@Override
-		public boolean onDown(MotionEvent e) {
-			if ((gestureListener != null) && gestureListener.onDown(e)) {
-				return true;
-			}
-			return false;
-		}
+		return needRequestLayout;
 	}
 
-	private class HierarchyChangeListenerImpl implements OnHierarchyChangeListener, OnLongClickListener {
-		private OnHierarchyChangeListener listener;
-
-		@Override
-		public void onChildViewAdded(View parent, View child) {
-			// generates an id if it's missing
-			if (child.getId() == View.NO_ID) {
-				child.setId(child.hashCode());
-			}
-
-			if (child != mRootView) {
-				child.setOnLongClickListener(this);
-			}
-			if (listener != null) {
-				listener.onChildViewAdded(parent, child);
-			}
-		}
-
-		@Override
-		public void onChildViewRemoved(View parent, View child) {
-			child.setOnLongClickListener(null);
-			child.setOnTouchListener(null);
-
-			if ((mRemoveListener != null) && (child != mRootView)){
-				mRemoveListener.onRemove(child, DragGridLayout.this);
-			}
-
-			if (listener != null) {
-				listener.onChildViewRemoved(parent, child);
-			}
-		}
-
-		@Override
-		public boolean onLongClick(View child) {
-			if ((child != null) && (child != mRootView) && !mEditMode) {
-				setEditMode(true);
-				return true;
-			}
-			return false;
-		}
+	public LayoutParams validateLayoutParams(ViewGroup.LayoutParams srcLp) {
+		requestFreeCellRegion();
+		return validateLayoutParams(srcLp, mFreeCellRegion);
 	}
 
-	static class Cell {
-		public final static int LEFT = 1;
-		public final static int RIGHT = 2;
-		public final static int TOP = 4;
-		public final static int BOTTOM = 8;
-
-		public final Rect rect;
-
-		Cell left;
-
-		Cell top;
-
-		Cell right;
-
-		Cell bottom;
-
-		Cell() {
-			rect = new Rect();
+	public LayoutParams validateLayoutParams(ViewGroup.LayoutParams srcLp,
+			Region freeRehion) {
+		final LayoutParams lp;
+		if (checkLayoutParams(srcLp)) {
+			lp = (LayoutParams) srcLp;
+		} else {
+			lp = generateLayoutParams(srcLp);
 		}
 
-		Cell(int x, int y, int s) {
-			rect = new Rect(x, y, x + s, y + s);
+		if (mCells.isEmpty()) {
+			return lp;
 		}
 
-		@Override
-		public int hashCode() {
-			return (rect.top << 12) | rect.left;
+		if (checkIsSpaceFree(lp, freeRehion)) {
+			return lp;
 		}
 
-		public Cell getLeft() {
-			return left;
+		final Cell cell = findFreeCell(lp.vSize, lp.hSize, freeRehion);
+		if (cell != null) {
+			lp.x = cell.rect.left;
+			lp.y = cell.rect.top;
 		}
-
-		public Cell getTop() {
-			return top;
-		}
-
-		public Cell getRight() {
-			return right;
-		}
-
-		public Cell getBottom() {
-			return bottom;
-		}
-
-		public void setCell(Cell cell, int direction) {
-			switch (direction) {
-			case Cell.LEFT:
-				left = cell;
-				break;
-			case Cell.TOP:
-				top = cell;
-				break;
-			case Cell.RIGHT:
-				right = cell;
-				break;
-			case Cell.BOTTOM:
-				bottom = cell;
-				break;
-			}
-		}
-	}
-
-	static class DragNode {
-		Rect startRect = new Rect();
-		Rect currentRect = new Rect();
-		View view;
-		BitmapDrawable viewDrawable;
-
-		DragNode(View view) {
-			this.view = view;
-			this.viewDrawable = DragGridLayout.createDrawingCache(view);
-
-			final LayoutParams lp = (LayoutParams) view.getLayoutParams();
-
-			DragGridLayout.requestRectangle(startRect, view);
-			startRect.offsetTo(lp.x, lp.y);
-
-			DragGridLayout.requestRectangle(currentRect, view);
-		}
-
-		public static void scale(Rect rect, float scale) {
-			final float dw = rect.width() * (1 - scale) * 0.5f;
-			final float dh = rect.height() * (1 - scale) * 0.5f;
-
-			rect.left += dw;
-			rect.top += dh;
-			rect.right -= dw;
-			rect.bottom -= dh;
-		}
-
-		@Override
-		public int hashCode() {
-			return view.hashCode();
-		}
-
-		public void dispose() {
-			if (viewDrawable != null) {
-				viewDrawable.getBitmap().recycle();
-				viewDrawable = null;
-			}
-		}
-	}
-
-	public interface OnViewRemoveListener {
-		void onRemove(View view, DragGridLayout parent);
-	}
-
-	public interface OnViewDragListener {
-		void onDrag(View view, DragGridLayout parent);
-
-		void onDrop(View view, DragGridLayout parent);
-	}
-
-	public interface OnCellClickListener {
-		void onClick(Point point, DragGridLayout parent);
+		return lp;
 	}
 }

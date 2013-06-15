@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:padding="5dp"
-    android:background="@android:color/darker_gray"
+	app:root_layout="@layout/root_view"
     app:highlight_drawable="@drawable/highlight"
     app:cell_count="4"
     app:debug_mode="true"

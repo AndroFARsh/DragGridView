@@ -2,5 +2,7 @@
 <resources xmlns:android="http://schemas.android.com/apk/res/android">
   <color name="widget1" >#78a616</color>
   <color name="widget2" >#f6592e</color>
-  <color name="widget3" >#259dd8</color>  
+  <color name="widget3" >#259dd8</color>
+  <color name="widget4" >#d8259d</color>  
+  <color name="widget5" >#d86025</color>    
 </resources>

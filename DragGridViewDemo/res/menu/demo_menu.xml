@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android" >
+    <item android:id="@+id/edit_mode"
+          android:title="Edit Mode" 
+          android:checkable="true"/>
+    <item android:id="@+id/debug_mode"
+          android:title="Debug Mode" 
+          android:checkable="true"/>
+</menu>

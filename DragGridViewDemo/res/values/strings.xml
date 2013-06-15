@@ -1,5 +1,7 @@
 <resources>
-
-    <string name="app_name">DragGridViewDemo</string>
-
+    <string name="demo_title_pattern" formatted="false">%s - %s</string>
+    <string name="app_name">DragGrid</string>
+    <string name="simple_demo_name">Simple Demo</string>
+    <string name="git_repository">Git Repository</string>
+    <string name="root_view_demo_name">Root View Demo</string>
 </resources>
