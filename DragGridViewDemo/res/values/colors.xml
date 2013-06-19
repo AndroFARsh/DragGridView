@@ -5,4 +5,12 @@
   <color name="widget3" >#259dd8</color>
   <color name="widget4" >#d8259d</color>  
   <color name="widget5" >#d86025</color>    
+  
+  <integer-array name="colors">
+      <item>@color/widget1</item>
+      <item>@color/widget2</item>
+      <item>@color/widget3</item>
+      <item>@color/widget4</item>
+      <item>@color/widget5</item>
+  </integer-array>
 </resources>

@@ -4,4 +4,10 @@
     <string name="simple_demo_name">Simple Demo</string>
     <string name="git_repository">Git Repository</string>
     <string name="root_view_demo_name">Root View Demo</string>
+    <string name="empty"></string>
+    <string name="widget_1">Widget 1</string>
+    <string name="widget_2">Widget 2</string>
+    <string name="widget_3">Widget 3</string>
+    <string name="widget_4">Widget 4</string>
+    <string name="widget_5">Widget 5</string>
 </resources>

@@ -5,7 +5,6 @@ import java.lang.reflect.Field;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
-import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
@@ -19,8 +18,7 @@ import android.widget.TextView;
 
 @SuppressWarnings("rawtypes")
 public class MainActivity extends BaseActivity {
-	private static final String TAG = MainActivity.class.getSimpleName();
-	private static final Class[] DEMOS = new Class[]{SimpleDemoActivty.class, RootViewDemoActivty.class};
+	private static final Class[] DEMOS = new Class[]{SimpleDemoActivity.class, RootViewDemoActivity.class};
 
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
@@ -61,24 +59,36 @@ public class MainActivity extends BaseActivity {
 	}
 
 	private final class DemoActivityAdapter extends BaseAdapter {
+		private final int[] colors;
+
+		public DemoActivityAdapter() {
+			colors = getResources().getIntArray(R.array.colors);
+		}
+
 		@Override
 		public View getView(int position, View convertView, ViewGroup parent) {
 			if (convertView == null){
-				convertView = getLayoutInflater().inflate(android.R.layout.simple_list_item_1, parent, false);
+				convertView = getLayoutInflater().inflate(R.layout.demo_item, parent, false);
+				TAG tag = new TAG();
+				tag.color = convertView.findViewById(R.id.color);
+				tag.text = (TextView) convertView.findViewById(R.id.text);
+				convertView.setTag(tag);
 			}
 
-			Class<? extends Activity> clazz = getItem(position);
+			final TAG tag = (org.androfarsh.demo.MainActivity.TAG) convertView.getTag();
+			final Class<? extends Activity> clazz = getItem(position);
 			try {
 				Field title = clazz.getField("TITLE");
-				((TextView)convertView).setText(title.getInt(clazz));
+				tag.text.setText(title.getInt(clazz));
 			} catch (IllegalArgumentException e) {
-				Log.e(TAG, e.getMessage(), e);
+				throw new RuntimeException(e);
 			} catch (IllegalAccessException e) {
-				Log.e(TAG, e.getMessage(), e);
+				throw new RuntimeException(e);
 			} catch (NoSuchFieldException e) {
-				((TextView)convertView).setText(clazz.getSimpleName());
-				Log.e(TAG, e.getMessage(), e);
+				tag.text.setText(clazz.getSimpleName());
 			}
+
+			tag.color.setBackgroundColor(getColor(position));
 			return convertView;
 		}
 
@@ -97,5 +107,17 @@ public class MainActivity extends BaseActivity {
 		public int getCount() {
 			return DEMOS.length;
 		}
+
+		private int getColor(int position){
+			if (position >= colors.length){
+				position = position - ((position / colors.length)*colors.length);
+			}
+			return colors[position];
+		}
+	}
+
+	static class TAG {
+		View color;
+		TextView text;
 	}
 }

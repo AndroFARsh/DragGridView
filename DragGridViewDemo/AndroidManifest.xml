@@ -5,13 +5,13 @@
 
     <uses-sdk
         android:minSdkVersion="8"
-        android:targetSdkVersion="17" />
+        android:targetSdkVersion="16" />
 
     <application
         android:allowBackup="true"
         android:icon="@drawable/ic_launcher"
-        android:label="@string/app_name"
-        android:theme="@style/AppTheme" >
+        android:label="@string/app_name" 
+        android:theme="@style/AppTheme">
         <activity android:name="org.androfarsh.demo.MainActivity" >
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -19,8 +19,9 @@
             </intent-filter>
         </activity>
         
-        <activity android:name="org.androfarsh.demo.SimpleDemoActivty" />
-        <activity android:name="org.androfarsh.demo.RootViewDemoActivty" />
+        <activity android:name="org.androfarsh.demo.SimpleDemoActivity" />
+        <activity android:name="org.androfarsh.demo.RootViewDemoActivity" />
+        <activity android:name="org.androfarsh.demo.DemoActivity" />
         
     </application>
 

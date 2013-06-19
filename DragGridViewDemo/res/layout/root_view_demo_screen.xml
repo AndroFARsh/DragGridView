@@ -5,70 +5,60 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:padding="5dp"
-	app:root_layout="@layout/root_view"
+    android:gravity="top|center_horizontal"
+	app:root_layout="@+id/root_view"
     app:highlight_drawable="@drawable/highlight"
     app:cell_count="4"
-    app:debug_mode="true"
     app:cell_drawable="@drawable/cell">
 
+    <RelativeLayout 
+	    android:id="@+id/root_view"
+	    android:layout_width="match_parent"
+	    android:layout_height="match_parent">
+    
+        <ImageView
+	        android:id="@+id/bg"
+	        android:layout_width="match_parent"
+	        android:layout_height="match_parent"
+			android:scaleType="centerCrop"
+	        android:src="@drawable/wp1" 
+	        android:contentDescription="@string/empty"/>
+        
+    	<TextView
+    	    android:id="@+id/watch_view"
+    	    android:layout_gravity="center"
+    	    android:layout_width="match_parent"
+        	android:layout_height="wrap_content"
+        	android:layout_centerVertical="true"
+        	android:layout_centerHorizontal="true"
+        	android:gravity="center"
+        	android:textSize="64sp"
+        	android:textColor="@android:color/white" />
+    </RelativeLayout>
+    
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:background="@drawable/widget1"
         android:gravity="center"
         android:layout_margin="5dp"
-        android:text="1"
+        android:text="@string/widget_1"
         android:textColor="@android:color/white"
         android:textStyle="bold"
         app:horizontal_size="1"
         app:vertical_size="1" />
 
     <TextView
+        android:id="@+id/widget_watch_view"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:background="@drawable/widget2"
         android:gravity="center"
         android:layout_margin="5dp"
-        android:text="2"
+        android:text="@string/widget_2"
         android:textColor="@android:color/white"
         android:textStyle="bold"
         app:horizontal_size="2"
         app:vertical_size="1" />
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:background="@drawable/widget3"
-        android:gravity="center"
-        android:layout_margin="5dp"
-        android:text="3"
-        android:textColor="@android:color/white"
-        android:textStyle="bold"
-        app:horizontal_size="1"
-        app:vertical_size="1" />
-        
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:background="@drawable/widget4"
-        android:gravity="center"
-        android:layout_margin="5dp"
-        android:text="4"
-        android:textColor="@android:color/white"
-        android:textStyle="bold"
-        app:horizontal_size="2"
-        app:vertical_size="2" />
-    
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:background="@drawable/widget5"
-        android:gravity="center"
-        android:layout_margin="5dp"
-        android:text="5"
-        android:textColor="@android:color/white"
-        android:textStyle="bold"
-        app:horizontal_size="1"
-        app:vertical_size="2" />
 
 </org.androfarsh.widget.DragGridLayout>
