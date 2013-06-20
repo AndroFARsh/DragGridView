@@ -42,8 +42,6 @@ import android.view.animation.AnimationSet;
 import android.view.animation.ScaleAnimation;
 import android.view.animation.TranslateAnimation;
 
-import com.example.draggridviewlibrary.R;
-
 public class DragGridLayout extends ViewGroup {
 	static class Cell {
 		public final static int LEFT = 1;
@@ -405,7 +403,7 @@ public class DragGridLayout extends ViewGroup {
 
 	private final Region mCellsRegion = new Region();
 
-	private final Region mFreeCellRegion = new Region();
+	private final Region mFreeCellsRegion = new Region();
 
 	private final Region mTmpRegion = new Region();
 
@@ -555,7 +553,7 @@ public class DragGridLayout extends ViewGroup {
 			canvas.drawPath(path, mPaint);
 
 			path.reset();
-			mFreeCellRegion.getBoundaryPath(path);
+			mFreeCellsRegion.getBoundaryPath(path);
 			path.close();
 			mPaint.setColor(0x66cc0000);
 			canvas.drawPath(path, mPaint);
@@ -665,7 +663,7 @@ public class DragGridLayout extends ViewGroup {
 			canvas.clipRect(mTmpRect);
 			mHighlightDrawable.setBounds(mTmpRect);
 
-			mTmpRegion.set(mFreeCellRegion);
+			mTmpRegion.set(mFreeCellsRegion);
 			mTmpRegion.op(mTmpRect, Op.INTERSECT);
 			mTmpRegion.getBounds(mTmpRect);
 
@@ -1177,6 +1175,9 @@ public class DragGridLayout extends ViewGroup {
 			} else if (mDragNode != null) {
 				mDragNode.currentRect.offset((int) (x - mPrevX),
 						(int) (y - mPrevY));
+				
+				requestHoveredCells(mDragNode);
+				requestReorderRevert();
 				requestDrop(mDragNode);
 
 				mPrevX = x;
@@ -1257,17 +1258,33 @@ public class DragGridLayout extends ViewGroup {
 	}
 
 	private void requestDrop(Node node) {
-		if (requestHoveredCells(node, true)) {
+		requestFreeCellRegion(node.view);
+		if (requestHoveredCells(node)) {
 			requestHoverRect(mTmpRect);
-			if ((node.startRect.width() == mTmpRect.width()) &&
-					(node.startRect.height() == mTmpRect.height())) {
+			
+			mTmpRegion.set(mFreeCellsRegion);
+			mTmpRegion.op(mTmpRect, Op.INTERSECT);
+			
+			Rect bound = mTmpRegion.getBounds();
+			if (!mTmpRegion.isEmpty() && 
+				!mTmpRegion.isComplex() &&
+				(bound.width() == mTmpRect.width()) &&
+				(bound.height() == mTmpRect.height())) {
 				node.startRect.offsetTo(mTmpRect.left, mTmpRect.top);
+				return;
 			}
 		}
+	
+		final LayoutParams lp = (LayoutParams) node.view.getLayoutParams();
+		final LayoutParams newLp = validateLayoutParams(generateLayoutParams(lp), mFreeCellsRegion);
+		if ((lp.x == newLp.x) && (lp.y == newLp.y)){
+			return;
+		}
+		node.startRect.offsetTo(newLp.x, newLp.y);
 	}
 
 	private void requestFreeCellRegion(View... views) {
-		mFreeCellRegion.set(mCellsRegion);
+		mFreeCellsRegion.set(mCellsRegion);
 		final int count = getChildCount();
 		for (int i = count - 1; i >= 0; --i) {
 			final View child = getChildAt(i);
@@ -1292,26 +1309,18 @@ public class DragGridLayout extends ViewGroup {
 				continue;
 			}
 
-			mFreeCellRegion.op(requestPreferredRect(mTmpRect, child),
+			mFreeCellsRegion.op(requestPreferredRect(mTmpRect, child),
 					Op.DIFFERENCE);
 		}
 	}
 
 	private boolean requestHoveredCells(Node node) {
-		return requestHoveredCells(node, false);
-	}
-
-	private boolean requestHoveredCells(Node node, boolean freeSpaceOnly) {
 		mHoveredCells.clear();
 		if (mCellsRegion.quickReject(node.currentRect)) {
 			return false;
 		}
-		if (freeSpaceOnly) {
-			requestFreeCellRegion(node.view);
-			mTmpRegion.set(freeSpaceOnly ? mFreeCellRegion : mCellsRegion);
-		} else {
-			mTmpRegion.set(mCellsRegion);
-		}
+
+		mTmpRegion.set(mCellsRegion);
 		mTmpRegion.op(node.currentRect, Op.INTERSECT);
 
 		final View view = node.view;
@@ -1417,10 +1426,10 @@ public class DragGridLayout extends ViewGroup {
 
 		for (final Node childNode : nodes) {
 			requestFreeCellRegion(childNode.view, mDragNode.view);
-			mFreeCellRegion.op(mDragNode.currentRect, Op.DIFFERENCE);
+			mFreeCellsRegion.op(mDragNode.currentRect, Op.DIFFERENCE);
 
 			final LayoutParams lp = (LayoutParams) childNode.view.getLayoutParams();
-			final LayoutParams newLp = validateLayoutParams(generateLayoutParams(lp), mFreeCellRegion);
+			final LayoutParams newLp = validateLayoutParams(generateLayoutParams(lp), mFreeCellsRegion);
 			if ((lp.x == newLp.x) && (lp.y == newLp.y)){
 				continue;
 			}
@@ -1433,7 +1442,7 @@ public class DragGridLayout extends ViewGroup {
 					childNode.startRect.left - childNode.currentRect.left, 0,
 					childNode.startRect.top - childNode.currentRect.top, 0));
 
-			animation.setDuration(DURATION);
+			animation.setDuration(DURATION / 2);
 			animation.setAnimationListener(new AbstractAnimationListener() {
 				@Override
 				public void onAnimationEnd(final Animation a) {
@@ -1458,12 +1467,16 @@ public class DragGridLayout extends ViewGroup {
 		boolean needInvalidate = false;
 		for (final Iterator<Node> it = mNodes.iterator(); it.hasNext();) {
 			final Node node = it.next();
-			requestFreeCellRegion();
-			for (Cell cell : mHoveredCells) {
-				mFreeCellRegion.op(cell.rect, Op.DIFFERENCE);
+			if (mDragNode != null){
+				requestFreeCellRegion(mDragNode.view);
+			} else {
+				requestFreeCellRegion();
 			}
-
-			mTmpRegion.set(mFreeCellRegion);
+			for (Cell cell : mHoveredCells) {
+				mFreeCellsRegion.op(cell.rect, Op.DIFFERENCE);
+			}
+			
+			mTmpRegion.set(mFreeCellsRegion);
 			mTmpRegion.op(node.startRect, Op.INTERSECT);
 			mTmpRegion.getBounds(mTmpRect);
 			if ((mTmpRect.width() == node.startRect.width())
@@ -1664,7 +1677,7 @@ public class DragGridLayout extends ViewGroup {
 
 	public LayoutParams validateLayoutParams(ViewGroup.LayoutParams srcLp) {
 		requestFreeCellRegion();
-		return validateLayoutParams(srcLp, mFreeCellRegion);
+		return validateLayoutParams(srcLp, mFreeCellsRegion);
 	}
 
 	public LayoutParams validateLayoutParams(ViewGroup.LayoutParams srcLp,

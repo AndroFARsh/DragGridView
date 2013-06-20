@@ -4,6 +4,7 @@ import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
+import org.androfarsh.demo.drahgrid.R;
 import org.androfarsh.widget.DragGridLayout;
 
 import android.os.Bundle;

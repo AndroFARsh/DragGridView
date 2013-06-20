@@ -1,5 +1,6 @@
 package org.androfarsh.demo;
 
+import org.androfarsh.demo.drahgrid.R;
 import org.androfarsh.widget.DragGridLayout;
 
 import android.os.Bundle;
