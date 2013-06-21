@@ -1,3 +1,18 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * Authored by Anton Kuhlevskyi <anton.kuhleskiy@gmail.com>
+ */
 package org.androfarsh.widget;
 
 import java.util.ArrayList;
@@ -41,6 +56,7 @@ import android.view.animation.Animation;
 import android.view.animation.AnimationSet;
 import android.view.animation.ScaleAnimation;
 import android.view.animation.TranslateAnimation;
+import android.view.animation.Animation.AnimationListener;
 
 public class DragGridLayout extends ViewGroup {
 	static class Cell {
@@ -236,13 +252,13 @@ public class DragGridLayout extends ViewGroup {
 	}
 
 	public static class LayoutParams extends MarginLayoutParams {
-		int x = UNKNOWN;
-		int y = UNKNOWN;
+		int mX = UNKNOWN;
+		int mY = UNKNOWN;
 
-		int vSize = 1;
-		int hSize = 1;
+		int mVerticalSize = 1;
+		int mHorizontalSize = 1;
 
-		LayoutParams() {
+		public LayoutParams() {
 			super(MATCH_PARENT, MATCH_PARENT);
 		}
 
@@ -251,8 +267,8 @@ public class DragGridLayout extends ViewGroup {
 			final TypedArray a = c.obtainStyledAttributes(attrs,
 					R.styleable.DragGridLayout);
 
-			vSize = a.getInt(R.styleable.DragGridLayout_vertical_size, 1);
-			hSize = a.getInt(R.styleable.DragGridLayout_horizontal_size, 1);
+			mVerticalSize = a.getInt(R.styleable.DragGridLayout_vertical_size, 1);
+			mHorizontalSize = a.getInt(R.styleable.DragGridLayout_horizontal_size, 1);
 
 			a.recycle();
 		}
@@ -260,21 +276,21 @@ public class DragGridLayout extends ViewGroup {
 		public LayoutParams(int width, int height) {
 			super(width, height);
 		}
-
+		
 		LayoutParams(int x, int y, int width, int height) {
 			super(width, height);
 
-			this.x = x;
-			this.y = y;
+			this.mX = x;
+			this.mY = y;
 		}
 
 		public LayoutParams(LayoutParams source) {
 			super(source);
 
-			x = source.x;
-			y = source.y;
-			vSize = source.vSize;
-			hSize = source.hSize;
+			mX = source.mX;
+			mY = source.mY;
+			mVerticalSize = source.mVerticalSize;
+			mHorizontalSize = source.mHorizontalSize;
 		}
 
 		public LayoutParams(MarginLayoutParams source) {
@@ -286,18 +302,43 @@ public class DragGridLayout extends ViewGroup {
 		}
 
 		public Point getPosition() {
-			return new Point(x, y);
+			return new Point(mX, mY);
 		}
 
-		public void setPosition(Point point) {
-			x = point.x;
-			y = point.y;
+		public LayoutParams setPosition(Point point) {
+			mX = point.x;
+			mY = point.y;
+			return this;
 		}
-
+		
+		public LayoutParams setPosition(int pX, int pY){
+			mX = pX;
+			mY = pY;
+			return this;
+		}
+		
+		public LayoutParams setHorizontalSize(int horizontalSize) {
+			mHorizontalSize = horizontalSize;
+			return this;
+		}
+		
+		public int getHorizontalSize() {
+			return mHorizontalSize;
+		}
+		
+		public LayoutParams setVerticalSize(int verticalSize) {
+			mVerticalSize = verticalSize;
+			return this;
+		}
+		
+		public int getVerticalSize() {
+			return mHorizontalSize;
+		}
+		
 		@Override
 		public String toString() {
 			return String.format(Locale.ENGLISH,
-					"[x=%d;y=%d] [h=%d;v=%d]", x, y, hSize, vSize);
+					"[x=%d;y=%d] [h=%d;v=%d]", mX, mY, mHorizontalSize, mVerticalSize);
 		}
 	}
 
@@ -338,6 +379,17 @@ public class DragGridLayout extends ViewGroup {
 			return view.hashCode();
 		}
 	}
+	
+	static abstract class AbstractAnimationListener implements AnimationListener {
+
+		@Override
+		public void onAnimationStart(Animation animation) {}
+
+		@Override
+		public void onAnimationRepeat(Animation animation) {}
+
+	}
+
 
 	public interface OnCellClickListener {
 		void onClick(Point point, DragGridLayout parent);
@@ -488,8 +540,8 @@ public class DragGridLayout extends ViewGroup {
 		mCellDrawable = a.getDrawable(R.styleable.DragGridLayout_cell_drawable);
 		mHighlightDrawable = a
 				.getDrawable(R.styleable.DragGridLayout_highlight_drawable);
-		mCellCount = a.getInteger(R.styleable.DragGridLayout_cell_count,
-				DEFAULT_CELL_COUNT);
+		setCellCount(a.getInteger(R.styleable.DragGridLayout_cell_count,
+				DEFAULT_CELL_COUNT));
 		mGravity = a.getInteger(R.styleable.DragGridLayout_android_gravity,
 				DEFAULT_GRAVITY);
 
@@ -528,8 +580,8 @@ public class DragGridLayout extends ViewGroup {
 
 		final LayoutParams lp = validateLayoutParams(params);
 		if (mRootView == child) {
-			lp.x = 0;
-			lp.y = 0;
+			lp.mX = 0;
+			lp.mY = 0;
 		}
 		super.addView(child, index, lp);
 	}
@@ -874,14 +926,14 @@ public class DragGridLayout extends ViewGroup {
 	}
 
 	private boolean isSpaceFree(LayoutParams lp, Region freeRagion) {
-		if (mCells.isEmpty() || (lp.x == UNKNOWN) || (lp.y == UNKNOWN)) {
+		if (mCells.isEmpty() || (lp.mX == UNKNOWN) || (lp.mY == UNKNOWN)) {
 			return false;
 		}
 
 		final Rect rect = new Rect(lp.leftMargin, lp.topMargin,
-				(lp.hSize * mCellSize) - lp.rightMargin, (lp.vSize * mCellSize)
+				(lp.mHorizontalSize * mCellSize) - lp.rightMargin, (lp.mVerticalSize * mCellSize)
 				- lp.bottomMargin);
-		rect.offset(lp.x, lp.y);
+		rect.offset(lp.mX, lp.mY);
 
 		mTmpRegion.set(freeRagion);
 		mTmpRegion.op(rect, Op.INTERSECT);
@@ -918,9 +970,9 @@ public class DragGridLayout extends ViewGroup {
 					.makeMeasureSpec(heightSize, MeasureSpec.EXACTLY),
 					getPaddingTop() + getPaddingBottom(), height);
 		} else {
-			final int width = (lp.hSize * mCellSize)
+			final int width = (lp.mHorizontalSize * mCellSize)
 					- (lp.leftMargin + lp.rightMargin);
-			final int height = (lp.vSize * mCellSize)
+			final int height = (lp.mVerticalSize * mCellSize)
 					- (lp.topMargin + lp.bottomMargin);
 
 			childWidthMeasureSpec = ViewGroup.getChildMeasureSpec(
@@ -981,9 +1033,9 @@ public class DragGridLayout extends ViewGroup {
 				childTop = 0;
 				childRight = r - l;
 				childBottom = b - t;
-			} else if ((lp.x != UNKNOWN) && (lp.y != UNKNOWN)) {
-				childLeft = lp.x + lp.leftMargin;
-				childTop = lp.y + lp.topMargin;
+			} else if ((lp.mX != UNKNOWN) && (lp.mY != UNKNOWN)) {
+				childLeft = lp.mX + lp.leftMargin;
+				childTop = lp.mY + lp.topMargin;
 				childRight = childLeft + child.getMeasuredWidth();
 				childBottom = childTop + child.getMeasuredHeight();
 			} else {
@@ -1000,12 +1052,18 @@ public class DragGridLayout extends ViewGroup {
 	@Override
 	protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
 		super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+		
+		//resolveGrid(getMeasuredWidth(), getMeasuredHeight());
 
 		measureChildren(widthMeasureSpec, heightMeasureSpec);
 	}
 
 	@Override
 	protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+		resolveGrid(w, h);
+	}
+
+	private void resolveGrid(int w, int h) {
 		mCellsRegion.setEmpty();
 
 		mCells.clear();
@@ -1189,8 +1247,8 @@ public class DragGridLayout extends ViewGroup {
 				final View child = mDragNode.view;
 				final LayoutParams lp = (LayoutParams) child.getLayoutParams();
 
-				lp.x = mDragNode.startRect.left;
-				lp.y = mDragNode.startRect.top;
+				lp.mX = mDragNode.startRect.left;
+				lp.mY = mDragNode.startRect.top;
 
 				mNodes.clear();
 				mDragNode.startRect.offset(lp.leftMargin, lp.topMargin);
@@ -1277,10 +1335,10 @@ public class DragGridLayout extends ViewGroup {
 	
 		final LayoutParams lp = (LayoutParams) node.view.getLayoutParams();
 		final LayoutParams newLp = validateLayoutParams(generateLayoutParams(lp), mFreeCellsRegion);
-		if ((lp.x == newLp.x) && (lp.y == newLp.y)){
+		if ((lp.mX == newLp.mX) && (lp.mY == newLp.mY)){
 			return;
 		}
-		node.startRect.offsetTo(newLp.x, newLp.y);
+		node.startRect.offsetTo(newLp.mX, newLp.mY);
 	}
 
 	private void requestFreeCellRegion(View... views) {
@@ -1305,7 +1363,7 @@ public class DragGridLayout extends ViewGroup {
 			}
 
 			LayoutParams lp = (LayoutParams) child.getLayoutParams();
-			if ((lp.x == UNKNOWN) || (lp.y == UNKNOWN)) {
+			if ((lp.mX == UNKNOWN) || (lp.mY == UNKNOWN)) {
 				continue;
 			}
 
@@ -1326,7 +1384,7 @@ public class DragGridLayout extends ViewGroup {
 		final View view = node.view;
 		final LayoutParams lp = (LayoutParams) view.getLayoutParams();
 
-		int cellCount = lp.hSize * lp.vSize;
+		int cellCount = lp.mHorizontalSize * lp.mVerticalSize;
 
 		final Rect rect = mTmpRegion.getBounds();
 
@@ -1378,13 +1436,13 @@ public class DragGridLayout extends ViewGroup {
 
 		int min = Math.min(Math.min(lt, rt), Math.min(lb, rb));
 		if (min == lt) {
-			fillHoveredCells(ltCell, 1, 1, lp.vSize, lp.hSize);
+			fillHoveredCells(ltCell, 1, 1, lp.mVerticalSize, lp.mHorizontalSize);
 		} else if (min == rt) {
-			fillHoveredCells(rtCell, 1, -1, lp.vSize, lp.hSize);
+			fillHoveredCells(rtCell, 1, -1, lp.mVerticalSize, lp.mHorizontalSize);
 		} else if (min == lb) {
-			fillHoveredCells(lbCell, -1, 1, lp.vSize, lp.hSize);
+			fillHoveredCells(lbCell, -1, 1, lp.mVerticalSize, lp.mHorizontalSize);
 		} else if (min == rb) {
-			fillHoveredCells(rbCell, -1, -1, lp.vSize, lp.hSize);
+			fillHoveredCells(rbCell, -1, -1, lp.mVerticalSize, lp.mHorizontalSize);
 		}
 
 		return cellCount == mHoveredCells.size();
@@ -1410,10 +1468,10 @@ public class DragGridLayout extends ViewGroup {
 				.getLayoutParams() : generateLayoutParams(view
 						.getLayoutParams());
 
-				outRect.left = lp.x;
-				outRect.top = lp.y;
-				outRect.right = outRect.left + (mCellSize * lp.hSize);
-				outRect.bottom = outRect.top + (mCellSize * lp.vSize);
+				outRect.left = lp.mX;
+				outRect.top = lp.mY;
+				outRect.right = outRect.left + (mCellSize * lp.mHorizontalSize);
+				outRect.bottom = outRect.top + (mCellSize * lp.mVerticalSize);
 
 				return outRect;
 	}
@@ -1430,7 +1488,7 @@ public class DragGridLayout extends ViewGroup {
 
 			final LayoutParams lp = (LayoutParams) childNode.view.getLayoutParams();
 			final LayoutParams newLp = validateLayoutParams(generateLayoutParams(lp), mFreeCellsRegion);
-			if ((lp.x == newLp.x) && (lp.y == newLp.y)){
+			if ((lp.mX == newLp.mX) && (lp.mY == newLp.mY)){
 				continue;
 			}
 			childNode.view.setLayoutParams(newLp);
@@ -1484,8 +1542,8 @@ public class DragGridLayout extends ViewGroup {
 				it.remove();
 
 				LayoutParams lp = (LayoutParams) node.view.getLayoutParams();
-				lp.x = node.startRect.left - lp.leftMargin;
-				lp.y = node.startRect.top - lp.topMargin;
+				lp.mX = node.startRect.left - lp.leftMargin;
+				lp.mY = node.startRect.top - lp.topMargin;
 
 				final AnimationSet animation = new AnimationSet(true);
 				animation.addAnimation(new TranslateAnimation(
@@ -1538,11 +1596,11 @@ public class DragGridLayout extends ViewGroup {
 		final int orientation = getResources().getConfiguration().orientation;
 		switch (orientation) {
 		case Configuration.ORIENTATION_LANDSCAPE:
-			return h / mCellCount;
+			return h / getCellCount();
 		case Configuration.ORIENTATION_PORTRAIT:
-			return w / mCellCount;
+			return w / getCellCount();
 		default:
-			return Math.max(h, w) / mCellCount;
+			return Math.max(h, w) / getCellCount();
 		}
 	}
 
@@ -1565,12 +1623,12 @@ public class DragGridLayout extends ViewGroup {
 		this.mCellClickListener = cellClickListener;
 	}
 
-	public void setCellDrawable(Drawable cellDrawable) {
+	public void setCellImage(Drawable cellDrawable) {
 		this.mCellDrawable = cellDrawable;
 	}
 
-	public void setCellResource(int cellRes) {
-		setCellDrawable(getResources().getDrawable(cellRes));
+	public void setCellImage(int cellRes) {
+		setCellImage(getResources().getDrawable(cellRes));
 	}
 
 	public void setDebugMode(boolean debugMode) {
@@ -1589,7 +1647,7 @@ public class DragGridLayout extends ViewGroup {
 	}
 
 	public void setEditMode(boolean value) {
-		if (mEditMode == value) {
+		if (this.mEditMode == value) {
 			return;
 		}
 
@@ -1610,12 +1668,12 @@ public class DragGridLayout extends ViewGroup {
 		mGestureListener.gestureListener = listener;
 	}
 
-	public void setHighlightDrawable(Drawable highlightDrawable) {
+	public void setHighlight(Drawable highlightDrawable) {
 		this.mHighlightDrawable = highlightDrawable;
 	}
 
-	public void setHighlightResource(int highlightRes) {
-		setHighlightDrawable(getResources().getDrawable(highlightRes));
+	public void setHighlight(int highlightRes) {
+		setHighlight(getResources().getDrawable(highlightRes));
 	}
 
 	@Override
@@ -1667,7 +1725,7 @@ public class DragGridLayout extends ViewGroup {
 			}
 
 			LayoutParams lp = (LayoutParams) child.getLayoutParams();
-			if ((lp.x == UNKNOWN) || (lp.y == UNKNOWN)) {
+			if ((lp.mX == UNKNOWN) || (lp.mY == UNKNOWN)) {
 				child.setLayoutParams(validateLayoutParams(lp));
 				needRequestLayout = true;
 			}
@@ -1697,11 +1755,22 @@ public class DragGridLayout extends ViewGroup {
 			return lp;
 		}
 
-		final Cell cell = findFreeCell(lp.vSize, lp.hSize, freeRehion);
+		final Cell cell = findFreeCell(lp.mVerticalSize, lp.mHorizontalSize, freeRehion);
 		if (cell != null) {
-			lp.x = cell.rect.left;
-			lp.y = cell.rect.top;
+			lp.mX = cell.rect.left;
+			lp.mY = cell.rect.top;
 		}
 		return lp;
+	}
+
+	public int getCellCount() {
+		return mCellCount;
+	}
+
+	public void setCellCount(int cellCount) {
+		if (mCellCount != cellCount){
+			mCellCount = cellCount;
+			requestLayout();
+		}
 	}
 }

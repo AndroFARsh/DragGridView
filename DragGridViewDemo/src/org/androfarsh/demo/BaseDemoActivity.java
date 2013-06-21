@@ -42,5 +42,15 @@ abstract class BaseDemoActivity extends BaseActivity {
 		return super.onMenuItemSelected(featureId, item);
 	}
 
+	@Override
+	public void onBackPressed() {
+		if (getDragGridLayout().isEditMode()){
+			getDragGridLayout().setEditMode(false);
+			return;
+		}
+
+		super.onBackPressed();
+	}
+	
 	public abstract DragGridLayout getDragGridLayout();
 }

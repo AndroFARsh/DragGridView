@@ -104,16 +104,6 @@ public class RootViewDemoActivity extends BaseDemoActivity {
 	}
 
 	@Override
-	public void onBackPressed() {
-		if (mGridView.isEditMode()){
-			mGridView.setEditMode(false);
-			return;
-		}
-
-		super.onBackPressed();
-	}
-
-	@Override
 	public DragGridLayout getDragGridLayout() {
 		return mGridView;
 	}

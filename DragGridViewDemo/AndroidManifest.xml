@@ -21,7 +21,7 @@
         
         <activity android:name="org.androfarsh.demo.SimpleDemoActivity" />
         <activity android:name="org.androfarsh.demo.RootViewDemoActivity" />
-        <activity android:name="org.androfarsh.demo.DemoActivity" />
+        <activity android:name="org.androfarsh.demo.ViewFromCodeDemoActivity" />
         
     </application>
 

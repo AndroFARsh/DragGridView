@@ -20,7 +20,7 @@ import android.widget.TextView;
 
 @SuppressWarnings("rawtypes")
 public class MainActivity extends BaseActivity {
-	private static final Class[] DEMOS = new Class[]{SimpleDemoActivity.class, RootViewDemoActivity.class};
+	private static final Class[] DEMOS = new Class[]{SimpleDemoActivity.class, RootViewDemoActivity.class, ViewFromCodeDemoActivity.class};
 
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
