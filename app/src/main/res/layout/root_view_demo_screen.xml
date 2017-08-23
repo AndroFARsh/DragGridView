@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<org.androfarsh.widget.DragGridLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/grid_view"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:gravity="top|center_horizontal"
+    android:padding="5dp"
+    app:cell_count="4"
+    app:cell_drawable="@drawable/cell"
+    app:highlight_drawable="@drawable/highlight"
+    app:root_layout="@+id/root_view"
+    >
+
+  <RelativeLayout
+      android:id="@+id/root_view"
+      android:layout_width="match_parent"
+      android:layout_height="match_parent"
+      >
+
+    <ImageView
+        android:id="@+id/bg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@string/empty"
+        android:scaleType="centerCrop"
+        android:src="@drawable/wp1"
+        />
+
+    <TextView
+        android:id="@+id/watch_view"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_centerHorizontal="true"
+        android:layout_centerVertical="true"
+        android:layout_gravity="center"
+        android:gravity="center"
+        android:textColor="@android:color/white"
+        android:textSize="64sp"
+        />
+  </RelativeLayout>
+
+  <TextView
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:layout_margin="5dp"
+      android:background="@drawable/widget1"
+      android:gravity="center"
+      android:text="@string/widget_1"
+      android:textColor="@android:color/white"
+      android:textStyle="bold"
+      app:horizontal_size="1"
+      app:vertical_size="1"
+      />
+
+  <TextView
+      android:id="@+id/widget_watch_view"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:layout_margin="5dp"
+      android:background="@drawable/widget2"
+      android:gravity="center"
+      android:text="@string/widget_2"
+      android:textColor="@android:color/white"
+      android:textStyle="bold"
+      app:horizontal_size="2"
+      app:vertical_size="1"
+      />
+
+</org.androfarsh.widget.DragGridLayout>

@@ -1,2 +1,11 @@
-**/bin
-**/gen
+*.iml
+.gradle
+/local.properties
+/gradle.properties
+/fabric.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+/projectFilesBackup
